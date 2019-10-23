@@ -1,7 +1,6 @@
 package fastzip
 
 import (
-	"archive/zip"
 	"bufio"
 	"context"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/saracen/fastzip/internal/zip"
 	"github.com/saracen/zipextra"
 	"golang.org/x/sync/errgroup"
 )
@@ -235,7 +235,7 @@ func (e *Extractor) updateFileMetadata(path string, file *zip.File) (err error) 
 		return err
 	}
 
-	if err = lchtimes(path, file.Mode(), time.Now(), file.ModTime()); err != nil {
+	if err = lchtimes(path, file.Mode(), time.Now(), file.Modified); err != nil {
 		return err
 	}
 

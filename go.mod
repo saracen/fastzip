@@ -3,7 +3,7 @@ module github.com/saracen/fastzip
 go 1.12
 
 require (
-	github.com/klauspost/compress v1.8.7-0.20191010133228-30993c63e1b0
+	github.com/klauspost/compress v1.9.2
 	github.com/klauspost/cpuid v1.2.1 // indirect
 	github.com/saracen/zipextra v0.0.0-20191018034721-f8fcc2e1b58e
 	github.com/stretchr/testify v1.4.0

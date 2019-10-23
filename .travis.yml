@@ -1,0 +1,17 @@
+language: go
+
+sudo: false
+
+os:
+  - windows
+  - linux
+  - osx
+
+go:
+  - 1.13.x
+  - master
+
+go_import_path: github.com/saracen/fastzip
+
+script:
+- go test --cpu 1,4 -race ./...
