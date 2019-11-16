@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/saracen/fastzip/internal/filepool"
 	"github.com/saracen/fastzip/internal/zip"
@@ -38,6 +39,8 @@ type Archiver struct {
 	m       sync.Mutex
 
 	compressors map[uint16]zip.Compressor
+
+	written, entries int64
 }
 
 // NewArchiver returns a new Archiver.
@@ -82,8 +85,19 @@ func (a *Archiver) Close() error {
 	return a.zw.Close()
 }
 
-// Archive archives all files, symlinks and directories.
+// Written returns how many bytes and entries have been written to the archive.
+// Written can be called whilst archiving is in progress.
+func (a *Archiver) Written() (bytes, entries int64) {
+	return atomic.LoadInt64(&a.written), atomic.LoadInt64(&a.entries)
+}
+
+// Archive calls ArchiveWithContext with a background context.
 func (a *Archiver) Archive(files map[string]os.FileInfo) (err error) {
+	return a.ArchiveWithContext(context.Background(), files)
+}
+
+// ArchiveWithContext archives all files, symlinks and directories.
+func (a *Archiver) ArchiveWithContext(ctx context.Context, files map[string]os.FileInfo) (err error) {
 	names := make([]string, 0, len(files))
 	for name := range files {
 		names = append(names, name)
@@ -101,10 +115,10 @@ func (a *Archiver) Archive(files map[string]os.FileInfo) (err error) {
 		if err != nil {
 			return err
 		}
-		defer fp.Close()
+		defer dclose(fp, &err)
 	}
 
-	wg, ctx := errgroup.WithContext(context.Background())
+	wg, ctx := errgroup.WithContext(ctx)
 	defer func() {
 		if werr := wg.Wait(); werr != nil {
 			err = werr
@@ -160,13 +174,15 @@ func (a *Archiver) Archive(files map[string]os.FileInfo) (err error) {
 			}
 
 			if fp == nil {
-				err = a.createFile(path, fi, hdr, nil)
+				err = a.createFile(ctx, path, fi, hdr, nil)
+				err = dinc(&a.entries, &err)
 			} else {
 				f := fp.Get()
 				wg.Go(func() error {
 					defer func() { fp.Put(f) }()
 
-					return a.createFile(path, fi, hdr, f)
+					err = a.createFile(ctx, path, fi, hdr, f)
+					return dinc(&a.entries, &err)
 				})
 			}
 		}
@@ -184,7 +200,7 @@ func (a *Archiver) createDirectory(fi os.FileInfo, hdr *zip.FileHeader) error {
 	defer a.m.Unlock()
 
 	_, err := a.createHeader(fi, hdr)
-	return err
+	return dinc(&a.entries, &err)
 }
 
 func (a *Archiver) createSymlink(path string, fi os.FileInfo, hdr *zip.FileHeader) error {
@@ -202,10 +218,10 @@ func (a *Archiver) createSymlink(path string, fi os.FileInfo, hdr *zip.FileHeade
 	}
 
 	_, err = io.WriteString(w, link)
-	return err
+	return dinc(&a.entries, &err)
 }
 
-func (a *Archiver) createFile(path string, fi os.FileInfo, hdr *zip.FileHeader, tmp *filepool.File) (err error) {
+func (a *Archiver) createFile(ctx context.Context, path string, fi os.FileInfo, hdr *zip.FileHeader, tmp *filepool.File) (err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -228,7 +244,7 @@ func (a *Archiver) createFile(path string, fi os.FileInfo, hdr *zip.FileHeader, 
 			return err
 		}
 
-		_, err = br.WriteTo(w)
+		_, err = br.WriteTo(countWriter{w, &a.written, ctx})
 		return err
 	}
 
@@ -239,7 +255,8 @@ func (a *Archiver) createFile(path string, fi os.FileInfo, hdr *zip.FileHeader, 
 		return err
 	}
 
-	_, err = io.Copy(io.MultiWriter(fw, tmp.Hasher()), br)
+	cw := countWriter{fw, &a.written, ctx}
+	_, err = io.Copy(io.MultiWriter(cw, tmp.Hasher()), br)
 	dclose(fw, &err)
 	if err != nil {
 		return err
@@ -249,7 +266,7 @@ func (a *Archiver) createFile(path string, fi os.FileInfo, hdr *zip.FileHeader, 
 	// if compressed file is larger, use the uncompressed version.
 	if hdr.CompressedSize64 > hdr.UncompressedSize64 {
 		hdr.Method = zip.Store
-		return a.createFile(path, fi, hdr, nil)
+		return a.createFile(ctx, path, fi, hdr, nil)
 	}
 	hdr.CRC32 = tmp.Checksum()
 

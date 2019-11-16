@@ -1,12 +1,14 @@
 package fastzip
 
 import (
+	"context"
 	"flag"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/saracen/fastzip/internal/zip"
@@ -101,6 +103,53 @@ func TestArchive(t *testing.T) {
 	testCreateArchive(t, dir, files, func(filename, chroot string) {
 		testExtract(t, filename, testFiles)
 	})
+}
+
+func TestArchiveCancelContext(t *testing.T) {
+	twoMB := strings.Repeat("1", 2*1024*1024)
+	testFiles := map[string]testFile{
+		"foo.go": testFile{mode: 0666, contents: twoMB},
+		"bar.go": testFile{mode: 0666, contents: twoMB},
+	}
+
+	files, dir := testCreateFiles(t, testFiles)
+	defer os.RemoveAll(dir)
+
+	f, err := ioutil.TempFile("", "fastzip-test")
+	require.NoError(t, err)
+	defer os.Remove(f.Name())
+	defer f.Close()
+
+	a, err := NewArchiver(f, dir)
+	a.RegisterCompressor(zip.Deflate, FlateCompressor(1))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer func() { done <- struct{}{} }()
+
+		require.EqualError(t, a.ArchiveWithContext(ctx, files), "context canceled")
+	}()
+
+	defer func() {
+		require.NoError(t, a.Close())
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+
+		default:
+			// cancel as soon as any data is written
+			if bytes, _ := a.Written(); bytes > 0 {
+				cancel()
+			}
+		}
+	}
 }
 
 func TestArchiveWithCompressor(t *testing.T) {

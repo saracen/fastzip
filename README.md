@@ -1,5 +1,8 @@
 # fastzip
 
+[![godoc](https://godoc.org/github.com/saracen/fastzip?status.svg)](http://godoc.org/github.com/saracen/fastzip)
+[![Build Status](https://travis-ci.org/saracen/fastzip.png)](https://travis-ci.org/saracen/fastzip)
+
 Fastzip is an opinionated Zip archiver and extractor with a focus on speed.
 
 - Archiving and extraction of files and directories can only occur within

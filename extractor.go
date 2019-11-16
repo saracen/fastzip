@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/saracen/fastzip/internal/zip"
@@ -34,6 +35,8 @@ type Extractor struct {
 	m       sync.Mutex
 	options extractorOptions
 	chroot  string
+
+	written, entries int64
 }
 
 // NewExtractor returns a new extractor.
@@ -79,11 +82,23 @@ func (e *Extractor) Close() error {
 	return e.zr.Close()
 }
 
-// Extract extracts files, creates symlinks and directories from the archive.
-func (e *Extractor) Extract() (err error) {
+// Written returns how many bytes and entries have been written to disk.
+// Written can be called whilst extraction is in progress.
+func (e *Extractor) Written() (bytes, entries int64) {
+	return atomic.LoadInt64(&e.written), atomic.LoadInt64(&e.entries)
+}
+
+// Extract calls ExtractWithContext with a background context.
+func (e *Extractor) Extract() error {
+	return e.ExtractWithContext(context.Background())
+}
+
+// ExtractWithContext extracts files, creates symlinks and directories from the
+// archive.
+func (e *Extractor) ExtractWithContext(ctx context.Context) (err error) {
 	limiter := make(chan struct{}, e.options.concurrency)
 
-	wg, ctx := errgroup.WithContext(context.Background())
+	wg, ctx := errgroup.WithContext(ctx)
 	defer func() {
 		if werr := wg.Wait(); werr != nil {
 			err = werr
@@ -128,7 +143,7 @@ func (e *Extractor) Extract() (err error) {
 			gf := e.zr.File[i]
 			wg.Go(func() error {
 				defer func() { <-limiter }()
-				err := e.createFile(path, gf)
+				err := e.createFile(ctx, path, gf)
 				if err == nil {
 					err = e.updateFileMetadata(path, gf)
 				}
@@ -170,7 +185,7 @@ func (e *Extractor) createDirectory(path string, file *zip.File) error {
 	if os.IsExist(err) {
 		err = nil
 	}
-	return err
+	return dinc(&e.entries, &err)
 }
 
 func (e *Extractor) createSymlink(path string, file *zip.File) error {
@@ -193,10 +208,14 @@ func (e *Extractor) createSymlink(path string, file *zip.File) error {
 		return err
 	}
 
-	return e.updateFileMetadata(path, file)
+	err = e.updateFileMetadata(path, file)
+
+	return dinc(&e.entries, &err)
 }
 
-func (e *Extractor) createFile(path string, file *zip.File) (err error) {
+func (e *Extractor) createFile(ctx context.Context, path string, file *zip.File) (err error) {
+	defer dinc(&e.entries, &err)
+
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -216,7 +235,7 @@ func (e *Extractor) createFile(path string, file *zip.File) (err error) {
 	bw := bufioWriterPool.Get().(*bufio.Writer)
 	defer bufioWriterPool.Put(bw)
 
-	bw.Reset(f)
+	bw.Reset(countWriter{f, &e.written, ctx})
 	if _, err = bw.ReadFrom(r); err != nil {
 		return err
 	}

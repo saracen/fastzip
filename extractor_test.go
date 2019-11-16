@@ -1,9 +1,11 @@
 package fastzip
 
 import (
+	"context"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/saracen/fastzip/internal/zip"
@@ -43,6 +45,45 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestExtractCancelContext(t *testing.T) {
+	twoMB := strings.Repeat("1", 2*1024*1024)
+	testFiles := map[string]testFile{
+		"foo.go": testFile{mode: 0666, contents: twoMB},
+		"bar.go": testFile{mode: 0666, contents: twoMB},
+	}
+
+	files, dir := testCreateFiles(t, testFiles)
+	defer os.RemoveAll(dir)
+
+	testCreateArchive(t, dir, files, func(filename, chroot string) {
+		e, err := NewExtractor(filename, dir)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		done := make(chan struct{})
+		go func() {
+			defer func() { done <- struct{}{} }()
+
+			require.EqualError(t, e.ExtractWithContext(ctx), "context canceled")
+		}()
+
+		for {
+			select {
+			case <-done:
+				return
+
+			default:
+				// cancel as soon as any data is written
+				if bytes, _ := e.Written(); bytes > 0 {
+					cancel()
+				}
+			}
+		}
+	})
 }
 
 func TestExtractorWithDecompressor(t *testing.T) {
