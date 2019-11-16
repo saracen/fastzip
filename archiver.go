@@ -181,7 +181,7 @@ func (a *Archiver) ArchiveWithContext(ctx context.Context, files map[string]os.F
 				wg.Go(func() error {
 					defer func() { fp.Put(f) }()
 
-					err = a.createFile(ctx, path, fi, hdr, f)
+					err := a.createFile(ctx, path, fi, hdr, f)
 					return dinc(&a.entries, &err)
 				})
 			}
