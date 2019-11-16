@@ -270,8 +270,10 @@ var archiveDir = flag.String("archivedir", runtime.GOROOT(), "The directory to u
 
 func benchmarkArchiveOptions(b *testing.B, stdDeflate bool, options ...ArchiverOption) {
 	files := make(map[string]os.FileInfo)
+	size := int64(0)
 	filepath.Walk(*archiveDir, func(filename string, fi os.FileInfo, err error) error {
 		files[filename] = fi
+		size += fi.Size()
 		return nil
 	})
 
@@ -282,6 +284,7 @@ func benchmarkArchiveOptions(b *testing.B, stdDeflate bool, options ...ArchiverO
 	options = append(options, WithStageDirectory(dir))
 
 	b.ReportAllocs()
+	b.SetBytes(size)
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		f, err := os.Create(filepath.Join(dir, "fastzip-benchmark.zip"))

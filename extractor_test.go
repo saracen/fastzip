@@ -114,7 +114,7 @@ func TestExtractorWithChownErrorHandler(t *testing.T) {
 	})
 }
 
-func benchmarkExtractOptions(b *testing.B, stdDeflate bool, options ...ExtractorOption) {
+func benchmarkExtractOptions(b *testing.B, store bool, stdDeflate bool, options ...ExtractorOption) {
 	files := make(map[string]os.FileInfo)
 	filepath.Walk(*archiveDir, func(filename string, fi os.FileInfo, err error) error {
 		files[filename] = fi
@@ -130,8 +130,13 @@ func benchmarkExtractOptions(b *testing.B, stdDeflate bool, options ...Extractor
 	require.NoError(b, err)
 	defer os.Remove(f.Name())
 
-	a, err := NewArchiver(f, *archiveDir, WithStageDirectory(dir))
-	a.RegisterCompressor(zip.Deflate, FlateCompressor(5))
+	var a *Archiver
+	if store {
+		a, err = NewArchiver(f, *archiveDir, WithStageDirectory(dir), WithArchiverMethod(zip.Store))
+	} else {
+		a, err = NewArchiver(f, *archiveDir, WithStageDirectory(dir))
+		a.RegisterCompressor(zip.Deflate, FlateCompressor(5))
+	}
 	require.NoError(b, err)
 
 	err = a.Archive(files)
@@ -141,6 +146,9 @@ func benchmarkExtractOptions(b *testing.B, stdDeflate bool, options ...Extractor
 
 	b.ReportAllocs()
 	b.ResetTimer()
+
+	fi, _ := os.Stat(archiveName)
+	b.SetBytes(fi.Size())
 	for n := 0; n < b.N; n++ {
 		e, err := NewExtractor(archiveName, dir, options...)
 		if !stdDeflate {
@@ -152,61 +160,61 @@ func benchmarkExtractOptions(b *testing.B, stdDeflate bool, options ...Extractor
 }
 
 func BenchmarkExtractStore_1(b *testing.B) {
-	benchmarkExtractOptions(b, true, WithExtractorConcurrency(1))
+	benchmarkExtractOptions(b, true, true, WithExtractorConcurrency(1))
 }
 
 func BenchmarkExtractStore_2(b *testing.B) {
-	benchmarkExtractOptions(b, true, WithExtractorConcurrency(2))
+	benchmarkExtractOptions(b, true, true, WithExtractorConcurrency(2))
 }
 
 func BenchmarkExtractStore_4(b *testing.B) {
-	benchmarkExtractOptions(b, true, WithExtractorConcurrency(4))
+	benchmarkExtractOptions(b, true, true, WithExtractorConcurrency(4))
 }
 
 func BenchmarkExtractStore_8(b *testing.B) {
-	benchmarkExtractOptions(b, true, WithExtractorConcurrency(8))
+	benchmarkExtractOptions(b, true, true, WithExtractorConcurrency(8))
 }
 
 func BenchmarkExtractStore_16(b *testing.B) {
-	benchmarkExtractOptions(b, true, WithExtractorConcurrency(16))
+	benchmarkExtractOptions(b, true, true, WithExtractorConcurrency(16))
 }
 
 func BenchmarkExtractStandardFlate_1(b *testing.B) {
-	benchmarkExtractOptions(b, true, WithExtractorConcurrency(1))
+	benchmarkExtractOptions(b, false, true, WithExtractorConcurrency(1))
 }
 
 func BenchmarkExtractStandardFlate_2(b *testing.B) {
-	benchmarkExtractOptions(b, true, WithExtractorConcurrency(2))
+	benchmarkExtractOptions(b, false, true, WithExtractorConcurrency(2))
 }
 
 func BenchmarkExtractStandardFlate_4(b *testing.B) {
-	benchmarkExtractOptions(b, true, WithExtractorConcurrency(4))
+	benchmarkExtractOptions(b, false, true, WithExtractorConcurrency(4))
 }
 
 func BenchmarkExtractStandardFlate_8(b *testing.B) {
-	benchmarkExtractOptions(b, true, WithExtractorConcurrency(8))
+	benchmarkExtractOptions(b, false, true, WithExtractorConcurrency(8))
 }
 
 func BenchmarkExtractStandardFlate_16(b *testing.B) {
-	benchmarkExtractOptions(b, true, WithExtractorConcurrency(16))
+	benchmarkExtractOptions(b, false, true, WithExtractorConcurrency(16))
 }
 
 func BenchmarkExtractNonStandardFlate_1(b *testing.B) {
-	benchmarkExtractOptions(b, false, WithExtractorConcurrency(1))
+	benchmarkExtractOptions(b, false, false, WithExtractorConcurrency(1))
 }
 
 func BenchmarkExtractNonStandardFlate_2(b *testing.B) {
-	benchmarkExtractOptions(b, false, WithExtractorConcurrency(2))
+	benchmarkExtractOptions(b, false, false, WithExtractorConcurrency(2))
 }
 
 func BenchmarkExtractNonStandardFlate_4(b *testing.B) {
-	benchmarkExtractOptions(b, false, WithExtractorConcurrency(4))
+	benchmarkExtractOptions(b, false, false, WithExtractorConcurrency(4))
 }
 
 func BenchmarkExtractNonStandardFlate_8(b *testing.B) {
-	benchmarkExtractOptions(b, false, WithExtractorConcurrency(8))
+	benchmarkExtractOptions(b, false, false, WithExtractorConcurrency(8))
 }
 
 func BenchmarkExtractNonStandardFlate_16(b *testing.B) {
-	benchmarkExtractOptions(b, false, WithExtractorConcurrency(16))
+	benchmarkExtractOptions(b, false, false, WithExtractorConcurrency(16))
 }
