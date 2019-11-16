@@ -50,15 +50,17 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) {
 func TestExtractCancelContext(t *testing.T) {
 	twoMB := strings.Repeat("1", 2*1024*1024)
 	testFiles := map[string]testFile{
-		"foo.go": testFile{mode: 0666, contents: twoMB},
-		"bar.go": testFile{mode: 0666, contents: twoMB},
+		"foo.go":    testFile{mode: 0666, contents: twoMB},
+		"bar.go":    testFile{mode: 0666, contents: twoMB},
+		"foobar.go": testFile{mode: 0666, contents: twoMB},
+		"barfoo.go": testFile{mode: 0666, contents: twoMB},
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
 	defer os.RemoveAll(dir)
 
 	testCreateArchive(t, dir, files, func(filename, chroot string) {
-		e, err := NewExtractor(filename, dir)
+		e, err := NewExtractor(filename, dir, WithExtractorConcurrency(1))
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
