@@ -1,7 +1,6 @@
 package fastzip
 
 import (
-	"archive/zip"
 	"bufio"
 	"context"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/saracen/fastzip/internal/zip"
 	"github.com/saracen/zipextra"
 	"golang.org/x/sync/errgroup"
 )
@@ -34,11 +34,6 @@ type Extractor struct {
 	m       sync.Mutex
 	options extractorOptions
 	chroot  string
-
-	// ChownErrorHandler handles errors that are encountered when trying to
-	// preserve ownership of extracted files. Returning nil will continue
-	// extraction, returning any error will cause Extract() to error.
-	ChownErrorHandler func(name string, err error) error
 }
 
 // NewExtractor returns a new extractor.
@@ -235,7 +230,7 @@ func (e *Extractor) updateFileMetadata(path string, file *zip.File) (err error) 
 		return err
 	}
 
-	if err = lchtimes(path, file.Mode(), time.Now(), file.ModTime()); err != nil {
+	if err = lchtimes(path, file.Mode(), time.Now(), file.Modified); err != nil {
 		return err
 	}
 
@@ -250,11 +245,11 @@ func (e *Extractor) updateFileMetadata(path string, file *zip.File) (err error) 
 		}
 
 		if err := lchown(path, int(unix.Uid.Int64()), int(unix.Gid.Int64())); err != nil {
-			if e.ChownErrorHandler != nil {
+			if e.options.chownErrorHandler != nil {
 				e.m.Lock()
 				defer e.m.Unlock()
 
-				if err = e.ChownErrorHandler(file.Name, err); err != nil {
+				if err = e.options.chownErrorHandler(file.Name, err); err != nil {
 					return err
 				}
 			}

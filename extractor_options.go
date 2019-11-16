@@ -1,22 +1,32 @@
 package fastzip
 
-import "fmt"
-
 // ExtractorOption is an option used when creating an extractor.
 type ExtractorOption func(*extractorOptions) error
 
 type extractorOptions struct {
-	concurrency int
+	concurrency       int
+	chownErrorHandler func(name string, err error) error
 }
 
-// WithExtractionConcurrency will set the maximum number of files being
+// WithExtractorConcurrency will set the maximum number of files being
 // extracted concurrently. The default is GOMAXPROCS.
-func WithExtractionConcurrency(n int) ExtractorOption {
+func WithExtractorConcurrency(n int) ExtractorOption {
 	return func(o *extractorOptions) error {
 		if n <= 0 {
-			return fmt.Errorf("concurrency must be at least 1")
+			return ErrMinConcurrency
 		}
 		o.concurrency = n
+		return nil
+	}
+}
+
+// WithExtractorChownErrorHandler sets an error handler to be called if errors are
+// encountered when trying to preserve ownership of extracted files. Returning
+// nil will continue extraction, returning any error will cause Extract() to
+// error.
+func WithExtractorChownErrorHandler(fn func(name string, err error) error) ExtractorOption {
+	return func(o *extractorOptions) error {
+		o.chownErrorHandler = fn
 		return nil
 	}
 }
