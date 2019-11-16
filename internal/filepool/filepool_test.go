@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -103,6 +104,10 @@ func TestFilePoolCloseError(t *testing.T) {
 }
 
 func TestFilePoolNoErrorOnAlreadyDeleted(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping test on windows (cannot delete in-use file)")
+	}
+
 	dir, err := ioutil.TempDir("", "fastzip-filepool")
 	require.NoError(t, err)
 

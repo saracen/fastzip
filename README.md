@@ -79,30 +79,31 @@ using the `WithArchiverConcurrency` and `WithExtractorConcurrency` options of 1,
 goos: linux
 goarch: amd64
 pkg: github.com/saracen/fastzip
-BenchmarkArchiveStore_1-24                             2         767790415 ns/op         7546972 B/op     164417 allocs/op
-BenchmarkArchiveStandardFlate_1-24                     1        12701854697 ns/op        9031584 B/op     155352 allocs/op
-BenchmarkArchiveStandardFlate_2-24                     1        7231142160 ns/op        14654976 B/op     158651 allocs/op
-BenchmarkArchiveStandardFlate_4-24                     1        3529653713 ns/op        19643472 B/op     158806 allocs/op
-BenchmarkArchiveStandardFlate_8-24                     1        2065915120 ns/op        20600568 B/op     158941 allocs/op
-BenchmarkArchiveStandardFlate_16-24                    1        1585204206 ns/op        35697976 B/op     159616 allocs/op
-BenchmarkArchiveNonStandardFlate_1-24                  1        6639106839 ns/op        10377136 B/op     155331 allocs/op
-BenchmarkArchiveNonStandardFlate_2-24                  1        3882063711 ns/op        29038464 B/op     159414 allocs/op
-BenchmarkArchiveNonStandardFlate_4-24                  1        2064839564 ns/op        32078616 B/op     159452 allocs/op
-BenchmarkArchiveNonStandardFlate_8-24                  1        1077984082 ns/op        68054488 B/op     159777 allocs/op
-BenchmarkArchiveNonStandardFlate_16-24                 2         902048164 ns/op        69093092 B/op     159835 allocs/op
-BenchmarkExtractStore_1-24                             1        4937620997 ns/op        114333728 B/op    513607 allocs/op
-BenchmarkExtractStore_2-24                             1        2760969294 ns/op        114625376 B/op    513614 allocs/op
-BenchmarkExtractStore_4-24                             1        1370455758 ns/op        114699696 B/op    513628 allocs/op
-BenchmarkExtractStore_8-24                             2         931258382 ns/op        101096036 B/op    489593 allocs/op
-BenchmarkExtractStore_16-24                            2         769617330 ns/op        103773148 B/op    489937 allocs/op
-BenchmarkExtractStandardFlate_1-24                     1        5392231233 ns/op        114553664 B/op    513624 allocs/op
-BenchmarkExtractStandardFlate_2-24                     1        2880754249 ns/op        114626128 B/op    513622 allocs/op
-BenchmarkExtractStandardFlate_4-24                     1        1469073062 ns/op        115026176 B/op    513661 allocs/op
-BenchmarkExtractStandardFlate_8-24                     2         876169089 ns/op        102183440 B/op    489708 allocs/op
-BenchmarkExtractStandardFlate_16-24                    2         676284180 ns/op        104806528 B/op    490060 allocs/op
-BenchmarkExtractNonStandardFlate_1-24                  1        5260825440 ns/op        87035856 B/op     329816 allocs/op
-BenchmarkExtractNonStandardFlate_2-24                  1        2493055665 ns/op        87566864 B/op     332024 allocs/op
-BenchmarkExtractNonStandardFlate_4-24                  1        1608618424 ns/op        87261736 B/op     332567 allocs/op
-BenchmarkExtractNonStandardFlate_8-24                  2         923286287 ns/op        72071512 B/op     309891 allocs/op
-BenchmarkExtractNonStandardFlate_16-24                 2         642293998 ns/op        74520496 B/op     315397 allocs/op
+BenchmarkArchiveStore_1-24                             2         772482855 ns/op         8962844 B/op     257183 allocs/op
+BenchmarkArchiveStandardFlate_1-24                     1        13196699393 ns/op        9586992 B/op     248114 allocs/op
+BenchmarkArchiveStandardFlate_2-24                     1        7300203038 ns/op        15313704 B/op     251330 allocs/op
+BenchmarkArchiveStandardFlate_4-24                     1        3539821258 ns/op        24525648 B/op     251646 allocs/op
+BenchmarkArchiveStandardFlate_8-24                     1        1944286406 ns/op        19624032 B/op     251541 allocs/op
+BenchmarkArchiveStandardFlate_16-24                    1        1790596744 ns/op        29944856 B/op     252091 allocs/op
+BenchmarkArchiveNonStandardFlate_1-24                  1        6247745899 ns/op        14758776 B/op     248133 allocs/op
+BenchmarkArchiveNonStandardFlate_2-24                  1        3764029513 ns/op        33551632 B/op     252126 allocs/op
+BenchmarkArchiveNonStandardFlate_4-24                  1        1854558293 ns/op        27617888 B/op     252174 allocs/op
+BenchmarkArchiveNonStandardFlate_8-24                  1        1128922279 ns/op        75541672 B/op     252550 allocs/op
+BenchmarkArchiveNonStandardFlate_16-24                 2         945668228 ns/op        90173168 B/op     252723 allocs/op
+BenchmarkExtractStore_1-24                             1        5364033610 ns/op        116324288 B/op    565157 allocs/op
+BenchmarkExtractStore_2-24                             1        2639053970 ns/op        116255864 B/op    565142 allocs/op
+BenchmarkExtractStore_4-24                             1        1708197512 ns/op        116609776 B/op    565178 allocs/op
+BenchmarkExtractStore_8-24                             2         874622744 ns/op        103196552 B/op    541182 allocs/op
+BenchmarkExtractStore_16-24                            2         687568570 ns/op        106350048 B/op    541573 allocs/op
+BenchmarkExtractStandardFlate_1-24                     1        5142607436 ns/op        116689128 B/op    565209 allocs/op
+BenchmarkExtractStandardFlate_2-24                     1        2737468656 ns/op        116357072 B/op    565158 allocs/op
+BenchmarkExtractStandardFlate_4-24                     1        1351563778 ns/op        116649904 B/op    565178 allocs/op
+BenchmarkExtractStandardFlate_8-24                     2         996574326 ns/op        103007976 B/op    541164 allocs/op
+BenchmarkExtractStandardFlate_16-24                    2         658321262 ns/op        105358128 B/op    541463 allocs/op
+BenchmarkExtractNonStandardFlate_1-24                  1        5076043375 ns/op        88775520 B/op     381157 allocs/op
+BenchmarkExtractNonStandardFlate_2-24                  1        2714489120 ns/op        89336000 B/op     384490 allocs/op
+BenchmarkExtractNonStandardFlate_4-24                  1        1702744403 ns/op        89313920 B/op     384366 allocs/op
+BenchmarkExtractNonStandardFlate_8-24                  2         976734059 ns/op        74924428 B/op     362664 allocs/op
+BenchmarkExtractNonStandardFlate_16-24                 2         662083060 ns/op        75818612 B/op     365682 allocs/op
+
 ```

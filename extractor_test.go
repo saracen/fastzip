@@ -64,7 +64,7 @@ func TestExtractorWithDecompressor(t *testing.T) {
 	})
 }
 
-func TestExtractorConcurrencyOption(t *testing.T) {
+func TestExtractorWithConcurrency(t *testing.T) {
 	testFiles := map[string]testFile{
 		"foo.go": testFile{mode: 0666},
 		"bar.go": testFile{mode: 0666},
@@ -96,6 +96,24 @@ func TestExtractorConcurrencyOption(t *testing.T) {
 	})
 }
 
+func TestExtractorWithChownErrorHandler(t *testing.T) {
+	testFiles := map[string]testFile{
+		"foo.go": testFile{mode: 0666},
+		"bar.go": testFile{mode: 0666},
+	}
+
+	files, dir := testCreateFiles(t, testFiles)
+	defer os.RemoveAll(dir)
+
+	testCreateArchive(t, dir, files, func(filename, chroot string) {
+		e, err := NewExtractor(filename, dir, WithExtractorChownErrorHandler(func(name string, err error) error {
+			return nil
+		}))
+		assert.NoError(t, err)
+		require.NoError(t, e.Close())
+	})
+}
+
 func benchmarkExtractOptions(b *testing.B, stdDeflate bool, options ...ExtractorOption) {
 	files := make(map[string]os.FileInfo)
 	filepath.Walk(*archiveDir, func(filename string, fi os.FileInfo, err error) error {
@@ -112,7 +130,7 @@ func benchmarkExtractOptions(b *testing.B, stdDeflate bool, options ...Extractor
 	require.NoError(b, err)
 	defer os.Remove(f.Name())
 
-	a, err := NewArchiver(f, *archiveDir, WithStageDirectoryMethod(dir))
+	a, err := NewArchiver(f, *archiveDir, WithStageDirectory(dir))
 	a.RegisterCompressor(zip.Deflate, FlateCompressor(5))
 	require.NoError(b, err)
 

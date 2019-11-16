@@ -15,6 +15,7 @@ type archiverOptions struct {
 	stageDir    string
 }
 
+// WithArchiverMethod sets the zip method to be used for compressible files.
 func WithArchiverMethod(method uint16) ArchiverOption {
 	return func(o *archiverOptions) error {
 		o.method = method
@@ -22,6 +23,8 @@ func WithArchiverMethod(method uint16) ArchiverOption {
 	}
 }
 
+// WithArchiverConcurrency will set the maximum number of files to be
+// compressed concurrently. The default is GOMAXPROCS.
 func WithArchiverConcurrency(n int) ArchiverOption {
 	return func(o *archiverOptions) error {
 		if n <= 0 {
@@ -32,7 +35,10 @@ func WithArchiverConcurrency(n int) ArchiverOption {
 	}
 }
 
-func WithStageDirectoryMethod(dir string) ArchiverOption {
+// WithStageDirectory sets the directory to be used to stage compressed files
+// before they're written to the archive. The default is the directory to be
+// archived.
+func WithStageDirectory(dir string) ArchiverOption {
 	return func(o *archiverOptions) error {
 		o.stageDir = dir
 		return nil

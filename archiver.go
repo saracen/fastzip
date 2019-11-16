@@ -149,22 +149,24 @@ func (a *Archiver) Archive(files map[string]os.FileInfo) (err error) {
 
 		switch hdr.Mode() & os.ModeType {
 		case os.ModeDir:
-			err = a.createDirectory(hdr)
+			err = a.createDirectory(fi, hdr)
 
 		case os.ModeSymlink:
-			err = a.createSymlink(path, hdr)
+			err = a.createSymlink(path, fi, hdr)
 
 		default:
-			hdr.Method = a.options.method
+			if hdr.UncompressedSize64 > 0 {
+				hdr.Method = a.options.method
+			}
 
 			if fp == nil {
-				err = a.createFile(path, hdr, nil)
+				err = a.createFile(path, fi, hdr, nil)
 			} else {
 				f := fp.Get()
 				wg.Go(func() error {
 					defer func() { fp.Put(f) }()
 
-					return a.createFile(path, hdr, f)
+					return a.createFile(path, fi, hdr, f)
 				})
 			}
 		}
@@ -177,19 +179,19 @@ func (a *Archiver) Archive(files map[string]os.FileInfo) (err error) {
 	return wg.Wait()
 }
 
-func (a *Archiver) createDirectory(hdr *zip.FileHeader) error {
+func (a *Archiver) createDirectory(fi os.FileInfo, hdr *zip.FileHeader) error {
 	a.m.Lock()
 	defer a.m.Unlock()
 
-	_, err := a.createHeader(hdr)
+	_, err := a.createHeader(fi, hdr)
 	return err
 }
 
-func (a *Archiver) createSymlink(path string, hdr *zip.FileHeader) error {
+func (a *Archiver) createSymlink(path string, fi os.FileInfo, hdr *zip.FileHeader) error {
 	a.m.Lock()
 	defer a.m.Unlock()
 
-	w, err := a.createHeader(hdr)
+	w, err := a.createHeader(fi, hdr)
 	if err != nil {
 		return err
 	}
@@ -203,7 +205,7 @@ func (a *Archiver) createSymlink(path string, hdr *zip.FileHeader) error {
 	return err
 }
 
-func (a *Archiver) createFile(path string, hdr *zip.FileHeader, tmp *filepool.File) (err error) {
+func (a *Archiver) createFile(path string, fi os.FileInfo, hdr *zip.FileHeader, tmp *filepool.File) (err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -221,7 +223,7 @@ func (a *Archiver) createFile(path string, hdr *zip.FileHeader, tmp *filepool.Fi
 		a.m.Lock()
 		defer a.m.Unlock()
 
-		w, err := a.createHeader(hdr)
+		w, err := a.createHeader(fi, hdr)
 		if err != nil {
 			return err
 		}
@@ -247,14 +249,14 @@ func (a *Archiver) createFile(path string, hdr *zip.FileHeader, tmp *filepool.Fi
 	// if compressed file is larger, use the uncompressed version.
 	if hdr.CompressedSize64 > hdr.UncompressedSize64 {
 		hdr.Method = zip.Store
-		return a.createFile(path, hdr, nil)
+		return a.createFile(path, fi, hdr, nil)
 	}
 	hdr.CRC32 = tmp.Checksum()
 
 	a.m.Lock()
 	defer a.m.Unlock()
 
-	w, err := a.createHeaderRaw(hdr)
+	w, err := a.createHeaderRaw(fi, hdr)
 	if err != nil {
 		return err
 	}

@@ -91,6 +91,8 @@ func TestArchive(t *testing.T) {
 		"bar/foo/bar/foo/bar": testFile{mode: 0666},
 		"bar/symlink":         testFile{mode: os.ModeDir | os.ModeSymlink | symMode, contents: "bar/foo/bar/foo"},
 		"bar/symlink.go":      testFile{mode: os.ModeSymlink | symMode, contents: "foo/foo.go"},
+		"bar/compressible":    testFile{mode: 0666, contents: "11111111111111111111111111111111111111111111111111"},
+		"bar/uncompressible":  testFile{mode: 0666, contents: "A3#bez&OqCusPr)d&D]Vot9Eo0z^5O*VZm3:sO3HptL.H-4cOv"},
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
@@ -142,6 +144,36 @@ func TestArchiveWithMethod(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, a.Archive(files))
 	require.NoError(t, a.Close())
+
+	testExtract(t, f.Name(), testFiles)
+}
+
+func TestArchiveWithStageDirectory(t *testing.T) {
+	testFiles := map[string]testFile{
+		"foo.go": testFile{mode: 0666},
+		"bar.go": testFile{mode: 0666},
+	}
+
+	files, chroot := testCreateFiles(t, testFiles)
+	defer os.RemoveAll(chroot)
+
+	dir, err := ioutil.TempDir("", "fastzip-benchmark-stage")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	f, err := ioutil.TempFile("", "fastzip-test")
+	require.NoError(t, err)
+	defer os.Remove(f.Name())
+	defer f.Close()
+
+	a, err := NewArchiver(f, chroot, WithStageDirectory(dir))
+	require.NoError(t, err)
+	require.NoError(t, a.Archive(files))
+	require.NoError(t, a.Close())
+
+	stageFiles, err := ioutil.ReadDir(dir)
+	require.NoError(t, err)
+	require.Zero(t, len(stageFiles))
 
 	testExtract(t, f.Name(), testFiles)
 }
@@ -247,7 +279,7 @@ func benchmarkArchiveOptions(b *testing.B, stdDeflate bool, options ...ArchiverO
 	require.NoError(b, err)
 	defer os.RemoveAll(dir)
 
-	options = append(options, WithStageDirectoryMethod(dir))
+	options = append(options, WithStageDirectory(dir))
 
 	b.ReportAllocs()
 	b.ResetTimer()
