@@ -18,7 +18,7 @@ Fastzip is an opinionated Zip archiver and extractor with a focus on speed.
 
 ## Example
 ### Archiver
-```
+```go
 // Create archive file
 w, err := os.Create("archive.zip")
 if err != nil {
@@ -50,7 +50,7 @@ if err = a.Archive(files); err != nil {
 ```
 
 ### Extractor
-```
+```go
 // Create new extractor
 e, err := fastzip.NewExtractor("archive.zip", "~/fastzip-extraction")
 if err != nil {
