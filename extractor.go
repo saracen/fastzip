@@ -24,6 +24,8 @@ var bufioWriterPool = sync.Pool{
 	},
 }
 
+var defaultDecompressor = FlateDecompressor()
+
 // Extractor is an opinionated Zip file extractor.
 //
 // Files are extracted in parallel. Only regular files, symlinks and directories
@@ -62,6 +64,8 @@ func NewExtractor(filename string, chroot string, opts ...ExtractorOption) (*Ext
 	if err != nil {
 		return nil, err
 	}
+
+	e.RegisterDecompressor(zip.Deflate, defaultDecompressor)
 
 	return e, nil
 }

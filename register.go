@@ -16,13 +16,16 @@ type flater interface {
 	Write(data []byte) (n int, err error)
 }
 
-var flateReaderPool = sync.Pool{
-	New: func() interface{} {
-		return &flateReader{flate.NewReader(nil)}
-	},
+func newFlateReaderPool(newReaderFn func(w io.Reader) io.ReadCloser) *sync.Pool {
+	pool := &sync.Pool{}
+	pool.New = func() interface{} {
+		return &flateReader{pool, newReaderFn(nil)}
+	}
+	return pool
 }
 
 type flateReader struct {
+	pool *sync.Pool
 	io.ReadCloser
 }
 
@@ -32,13 +35,31 @@ func (fr *flateReader) Reset(r io.Reader) {
 
 func (fr *flateReader) Close() error {
 	err := fr.ReadCloser.Close()
-	flateReaderPool.Put(fr)
+	fr.pool.Put(fr)
 	return err
 }
 
+// FlateDecompressor returns a pooled performant zip.Decompressor.
 func FlateDecompressor() func(r io.Reader) io.ReadCloser {
+	pool := newFlateReaderPool(func(r io.Reader) io.ReadCloser {
+		return flate.NewReader(r)
+	})
+
 	return func(r io.Reader) io.ReadCloser {
-		fr := flateReaderPool.Get().(*flateReader)
+		fr := pool.Get().(*flateReader)
+		fr.Reset(r)
+		return fr
+	}
+}
+
+// StdFlateDecompressor returns a pooled standard library zip.Decompressor.
+func StdFlateDecompressor() func(r io.Reader) io.ReadCloser {
+	pool := newFlateReaderPool(func(r io.Reader) io.ReadCloser {
+		return stdflate.NewReader(r)
+	})
+
+	return func(r io.Reader) io.ReadCloser {
+		fr := pool.Get().(*flateReader)
 		fr.Reset(r)
 		return fr
 	}
@@ -72,8 +93,8 @@ func (fw *flateWriter) Close() error {
 	return err
 }
 
-// FlateCompressor provides a zip.Compressor but with a specific deflate
-// level specified. Invalid flate levels will panic.
+// FlateCompressor returns a pooled performant zip.Compressor configured to a
+// specified compression level. Invalid flate levels will panic.
 func FlateCompressor(level int) func(w io.Writer) (io.WriteCloser, error) {
 	pool := newFlateWriterPool(level, func(w io.Writer, level int) (flater, error) {
 		return flate.NewWriter(w, level)
@@ -86,7 +107,10 @@ func FlateCompressor(level int) func(w io.Writer) (io.WriteCloser, error) {
 	}
 }
 
-func stdFlateCompressor(level int) func(w io.Writer) (io.WriteCloser, error) {
+// StdFlateCompressor returns a pooled standard library zip.Compressor
+// configured to a specified compression level. Invalid flate levels will
+// panic.
+func StdFlateCompressor(level int) func(w io.Writer) (io.WriteCloser, error) {
 	pool := newFlateWriterPool(level, func(w io.Writer, level int) (flater, error) {
 		return stdflate.NewWriter(w, level)
 	})

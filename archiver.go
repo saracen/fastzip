@@ -26,6 +26,8 @@ var bufioReaderPool = sync.Pool{
 	},
 }
 
+var defaultCompressor = FlateCompressor(-1)
+
 // Archiver is an opinionated Zip archiver.
 //
 // Only regular files, symlinks and directories are supported. Only files that
@@ -67,8 +69,8 @@ func NewArchiver(w io.Writer, chroot string, opts ...ArchiverOption) (*Archiver,
 
 	a.zw = zip.NewWriter(w)
 
-	// register standard flate compressor
-	a.RegisterCompressor(zip.Deflate, stdFlateCompressor(5))
+	// register flate compressor
+	a.RegisterCompressor(zip.Deflate, defaultCompressor)
 
 	return a, nil
 }

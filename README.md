@@ -11,13 +11,9 @@ Fastzip is an opinionated Zip archiver and extractor with a focus on speed.
   preserved.
 - Buffers used for copying files are recycled to reduce allocations.
 - Files are archived and extracted concurrently.
-- By default, the standard library's `compress/flate` is used, however, you can
-  easily register this library's preferred deflate encoder with:
-    - `archive.RegisterCompressor(zip.Deflate, fastzip.FlateCompressor(5))`
-    - `extractor.RegisterDecompressor(zip.Deflate, fastzip.FlateDecompressor())`
-  
-  This uses the excellent [`github.com/klauspost/compress/flate`](https://github.com/klauspost/compress)
-  library and is 30-40% faster than the standard library.
+- By default, the excellent
+  [`github.com/klauspost/compress/flate`](https://github.com/klauspost/compress)
+  library is used for compression and decompression.
 
 ## Example
 ### Archiver
@@ -36,8 +32,8 @@ if err != nil {
 }
 defer a.Close()
 
-// Register faster compressor, level 5 compression
-a.RegisterCompressor(zip.Deflate, fastzip.FlateCompressor(5))
+// Register a non-default level compressor if required
+// a.RegisterCompressor(zip.Deflate, fastzip.FlateCompressor(1))
 
 // Walk directory, adding the files we want to add
 files := make(map[string]os.FileInfo)
@@ -61,9 +57,6 @@ if err != nil {
 }
 defer e.Close()
 
-// Register faster decompressor
-e.RegisterDecompressor(zip.Deflate, fastzip.FlateDecompressor())
-
 // Extract archive files
 if err = e.Extract(); err != nil {
   panic(err)
@@ -79,33 +72,36 @@ StandardFlate is using  `compress/flate`, NonStandardFlate is
 using the `WithArchiverConcurrency` and `WithExtractorConcurrency` options of 1, 2, 4, 8 and 16.
 
 ```
+$ go test -bench Benchmark* -archivedir go1.13 -benchtime=30s -timeout=20m
+
 goos: linux
 goarch: amd64
 pkg: github.com/saracen/fastzip
-BenchmarkArchiveStore_1-24                             2         827436658 ns/op         401.87 MB/s     9432392 B/op     266281 allocs/op
-BenchmarkArchiveStandardFlate_1-24                     1        13345510211 ns/op         24.92 MB/s    11723112 B/op     257254 allocs/op
-BenchmarkArchiveStandardFlate_2-24                     1        7158552137 ns/op          46.45 MB/s    15866408 B/op     260805 allocs/op
-BenchmarkArchiveStandardFlate_4-24                     1        3748912799 ns/op          88.70 MB/s    21701080 B/op     260984 allocs/op
-BenchmarkArchiveStandardFlate_8-24                     1        1929447410 ns/op         172.34 MB/s    24345232 B/op     261216 allocs/op
-BenchmarkArchiveStandardFlate_16-24                    1        1601845052 ns/op         207.59 MB/s    27819232 B/op     261527 allocs/op
-BenchmarkArchiveNonStandardFlate_1-24                  1        6323870186 ns/op          52.58 MB/s    15162312 B/op     257225 allocs/op
-BenchmarkArchiveNonStandardFlate_2-24                  1        3974602831 ns/op          83.66 MB/s    39907560 B/op     261764 allocs/op
-BenchmarkArchiveNonStandardFlate_4-24                  1        2011674444 ns/op         165.30 MB/s    46077496 B/op     261823 allocs/op
-BenchmarkArchiveNonStandardFlate_8-24                  1        1141812959 ns/op         291.22 MB/s    64150920 B/op     261970 allocs/op
-BenchmarkArchiveNonStandardFlate_16-24                 2         900114760 ns/op         369.42 MB/s    83224376 B/op     262219 allocs/op
-BenchmarkExtractStore_1-24                             1        1533926053 ns/op         214.77 MB/s    52866536 B/op     376590 allocs/op
-BenchmarkExtractStore_2-24                             2         765725804 ns/op         430.24 MB/s    37453780 B/op     352368 allocs/op
-BenchmarkExtractStore_4-24                             3         400612015 ns/op         822.35 MB/s    32543053 B/op     344306 allocs/op
-BenchmarkExtractStore_8-24                             5         244330423 ns/op        1348.35 MB/s    28740785 B/op     337885 allocs/op
-BenchmarkExtractStore_16-24                            6         176670429 ns/op        1864.74 MB/s    27412849 B/op     336255 allocs/op
-BenchmarkExtractStandardFlate_1-24                     1        5555366310 ns/op          23.29 MB/s    116613120 B/op    574230 allocs/op
-BenchmarkExtractStandardFlate_2-24                     1        2891878658 ns/op          44.73 MB/s    117078464 B/op    574266 allocs/op
-BenchmarkExtractStandardFlate_4-24                     1        1437946901 ns/op          89.96 MB/s    117199504 B/op    574274 allocs/op
-BenchmarkExtractStandardFlate_8-24                     1        1070725688 ns/op         120.81 MB/s    117706240 B/op    574328 allocs/op
-BenchmarkExtractStandardFlate_16-24                    2         730608470 ns/op         177.06 MB/s    105287080 B/op    550492 allocs/op
-BenchmarkExtractNonStandardFlate_1-24                  1        4797270832 ns/op          26.97 MB/s    89298080 B/op     390746 allocs/op
-BenchmarkExtractNonStandardFlate_2-24                  1        2670061801 ns/op          48.45 MB/s    89585600 B/op     392432 allocs/op
-BenchmarkExtractNonStandardFlate_4-24                  1        1461367611 ns/op          88.52 MB/s    89899552 B/op     394237 allocs/op
-BenchmarkExtractNonStandardFlate_8-24                  2         839255530 ns/op         154.14 MB/s    77181004 B/op     374984 allocs/op
-BenchmarkExtractNonStandardFlate_16-24                 2         626829180 ns/op         206.37 MB/s    76094588 B/op     374289 allocs/op
+BenchmarkArchiveStore_1-24                            57         759214314 ns/op         437.98 MB/s     9402776 B/op     266273 allocs/op
+BenchmarkArchiveStandardFlate_1-24                     2        16635779058 ns/op         19.99 MB/s    11278584 B/op     257235 allocs/op
+BenchmarkArchiveStandardFlate_2-24                     4        8958114992 ns/op          37.12 MB/s    15874110 B/op     260757 allocs/op
+BenchmarkArchiveStandardFlate_4-24                     7        4513852744 ns/op          73.67 MB/s    18144582 B/op     260842 allocs/op
+BenchmarkArchiveStandardFlate_8-24                    14        2337987195 ns/op         142.23 MB/s    22054485 B/op     260969 allocs/op
+BenchmarkArchiveStandardFlate_16-24                   15        2112499873 ns/op         157.41 MB/s    27918230 B/op     261194 allocs/op
+BenchmarkArchiveNonStandardFlate_1-24                  5        6313696025 ns/op          52.67 MB/s    15156160 B/op     257217 allocs/op
+BenchmarkArchiveNonStandardFlate_2-24                  9        3741371342 ns/op          88.88 MB/s    30771747 B/op     261645 allocs/op
+BenchmarkArchiveNonStandardFlate_4-24                 18        1906735146 ns/op         174.39 MB/s    35048840 B/op     261690 allocs/op
+BenchmarkArchiveNonStandardFlate_8-24                 33        1046698073 ns/op         317.69 MB/s    49022688 B/op     261807 allocs/op
+BenchmarkArchiveNonStandardFlate_16-24                36         889191472 ns/op         373.96 MB/s    75247073 B/op     262044 allocs/op
+BenchmarkExtractStore_1-24                            24        1491304034 ns/op         220.91 MB/s    22625127 B/op     330125 allocs/op
+BenchmarkExtractStore_2-24                            43         717933301 ns/op         458.88 MB/s    22280720 B/op     329243 allocs/op
+BenchmarkExtractStore_4-24                            98         362879118 ns/op         907.86 MB/s    22231260 B/op     328635 allocs/op
+BenchmarkExtractStore_8-24                           174         207128645 ns/op        1590.53 MB/s    22369458 B/op     328445 allocs/op
+BenchmarkExtractStore_16-24                          232         153516463 ns/op        2145.99 MB/s    22326276 B/op     328391 allocs/op
+BenchmarkExtractStandardFlate_1-24                     6        5134276149 ns/op          25.20 MB/s    92484254 B/op     525571 allocs/op
+BenchmarkExtractStandardFlate_2-24                    12        2735566653 ns/op          47.29 MB/s    91496545 B/op     521703 allocs/op
+BenchmarkExtractStandardFlate_4-24                    25        1413308343 ns/op          91.53 MB/s    91636712 B/op     519786 allocs/op
+BenchmarkExtractStandardFlate_8-24                    38         917288285 ns/op         141.02 MB/s    93474913 B/op     519425 allocs/op
+BenchmarkExtractStandardFlate_16-24                   48         628763448 ns/op         205.74 MB/s    95599041 B/op     519594 allocs/op
+BenchmarkExtractNonStandardFlate_1-24                  6        5173029578 ns/op          25.01 MB/s    64130228 B/op     352198 allocs/op
+BenchmarkExtractNonStandardFlate_2-24                 13        2685023282 ns/op          48.18 MB/s    63327702 B/op     353975 allocs/op
+BenchmarkExtractNonStandardFlate_4-24                 25        1460385105 ns/op          88.58 MB/s    63177508 B/op     354165 allocs/op
+BenchmarkExtractNonStandardFlate_8-24                 36         901423814 ns/op         143.51 MB/s    64567442 B/op     357130 allocs/op
+BenchmarkExtractNonStandardFlate_16-24                57         635525487 ns/op         203.55 MB/s    65348558 B/op     360551 allocs/op
+
 ```
