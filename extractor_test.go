@@ -100,7 +100,7 @@ func TestExtractorWithDecompressor(t *testing.T) {
 	testCreateArchive(t, dir, files, func(filename, chroot string) {
 		e, err := NewExtractor(filename, dir)
 		require.NoError(t, err)
-		e.RegisterDecompressor(zip.Deflate, FlateDecompressor())
+		e.RegisterDecompressor(zip.Deflate, StdFlateDecompressor())
 		defer e.Close()
 
 		require.NoError(t, e.Extract())
@@ -178,7 +178,7 @@ func benchmarkExtractOptions(b *testing.B, store bool, stdDeflate bool, options 
 		a, err = NewArchiver(f, *archiveDir, WithStageDirectory(dir), WithArchiverMethod(zip.Store))
 	} else {
 		a, err = NewArchiver(f, *archiveDir, WithStageDirectory(dir))
-		a.RegisterCompressor(zip.Deflate, FlateCompressor(5))
+		a.RegisterCompressor(zip.Deflate, FlateCompressor(-1))
 	}
 	require.NoError(b, err)
 
@@ -194,8 +194,8 @@ func benchmarkExtractOptions(b *testing.B, store bool, stdDeflate bool, options 
 	b.SetBytes(fi.Size())
 	for n := 0; n < b.N; n++ {
 		e, err := NewExtractor(archiveName, dir, options...)
-		if !stdDeflate {
-			e.RegisterDecompressor(zip.Deflate, FlateDecompressor())
+		if stdDeflate {
+			e.RegisterDecompressor(zip.Deflate, StdFlateDecompressor())
 		}
 		require.NoError(b, err)
 		require.NoError(b, e.Extract())

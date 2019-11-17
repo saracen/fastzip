@@ -341,9 +341,9 @@ func benchmarkArchiveOptions(b *testing.B, stdDeflate bool, options ...ArchiverO
 
 		a, err := NewArchiver(f, *archiveDir, options...)
 		if stdDeflate {
-			a.RegisterCompressor(zip.Deflate, stdFlateCompressor(5))
+			a.RegisterCompressor(zip.Deflate, StdFlateCompressor(-1))
 		} else {
-			a.RegisterCompressor(zip.Deflate, FlateCompressor(5))
+			a.RegisterCompressor(zip.Deflate, FlateCompressor(-1))
 		}
 		require.NoError(b, err)
 
