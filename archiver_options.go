@@ -13,6 +13,7 @@ type archiverOptions struct {
 	method      uint16
 	concurrency int
 	stageDir    string
+	offset      int64
 }
 
 // WithArchiverMethod sets the zip method to be used for compressible files.
@@ -41,6 +42,15 @@ func WithArchiverConcurrency(n int) ArchiverOption {
 func WithStageDirectory(dir string) ArchiverOption {
 	return func(o *archiverOptions) error {
 		o.stageDir = dir
+		return nil
+	}
+}
+
+// WithArchiverOffset sets the offset of the beginning of the zip data. This
+// should be used when zip data is appended to an existing file.
+func WithArchiverOffset(n int64) ArchiverOption {
+	return func(o *archiverOptions) error {
+		o.offset = n
 		return nil
 	}
 }

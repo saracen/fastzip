@@ -3,6 +3,7 @@ package fastzip
 import (
 	"context"
 	"flag"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -313,6 +314,30 @@ func TestArchiveChroot(t *testing.T) {
 			assert.Error(t, err)
 		}
 	}
+}
+
+func TestArchiveWithOffset(t *testing.T) {
+	testFiles := map[string]testFile{
+		"foo.go": testFile{mode: 0666},
+		"bar.go": testFile{mode: 0666},
+	}
+
+	files, dir := testCreateFiles(t, testFiles)
+	defer os.RemoveAll(dir)
+
+	f, err := ioutil.TempFile("", "fastzip-test")
+	require.NoError(t, err)
+	defer os.Remove(f.Name())
+	defer f.Close()
+
+	f.Seek(1000, io.SeekStart)
+
+	a, err := NewArchiver(f, dir, WithArchiverOffset(1000))
+	require.NoError(t, err)
+	require.NoError(t, a.Archive(files))
+	require.NoError(t, a.Close())
+
+	testExtract(t, f.Name(), testFiles)
 }
 
 var archiveDir = flag.String("archivedir", runtime.GOROOT(), "The directory to use for archive benchmarks")

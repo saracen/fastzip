@@ -68,6 +68,7 @@ func NewArchiver(w io.Writer, chroot string, opts ...ArchiverOption) (*Archiver,
 	}
 
 	a.zw = zip.NewWriter(w)
+	a.zw.SetOffset(a.options.offset)
 
 	// register flate compressor
 	a.RegisterCompressor(zip.Deflate, defaultCompressor)
