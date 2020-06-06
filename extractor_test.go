@@ -50,10 +50,10 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) {
 func TestExtractCancelContext(t *testing.T) {
 	twoMB := strings.Repeat("1", 2*1024*1024)
 	testFiles := map[string]testFile{
-		"foo.go":    testFile{mode: 0666, contents: twoMB},
-		"bar.go":    testFile{mode: 0666, contents: twoMB},
-		"foobar.go": testFile{mode: 0666, contents: twoMB},
-		"barfoo.go": testFile{mode: 0666, contents: twoMB},
+		"foo.go":    {mode: 0666, contents: twoMB},
+		"bar.go":    {mode: 0666, contents: twoMB},
+		"foobar.go": {mode: 0666, contents: twoMB},
+		"barfoo.go": {mode: 0666, contents: twoMB},
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
@@ -90,8 +90,8 @@ func TestExtractCancelContext(t *testing.T) {
 
 func TestExtractorWithDecompressor(t *testing.T) {
 	testFiles := map[string]testFile{
-		"foo.go": testFile{mode: 0666},
-		"bar.go": testFile{mode: 0666},
+		"foo.go": {mode: 0666},
+		"bar.go": {mode: 0666},
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
@@ -109,8 +109,8 @@ func TestExtractorWithDecompressor(t *testing.T) {
 
 func TestExtractorWithConcurrency(t *testing.T) {
 	testFiles := map[string]testFile{
-		"foo.go": testFile{mode: 0666},
-		"bar.go": testFile{mode: 0666},
+		"foo.go": {mode: 0666},
+		"bar.go": {mode: 0666},
 	}
 
 	concurrencyTests := []struct {
@@ -141,8 +141,8 @@ func TestExtractorWithConcurrency(t *testing.T) {
 
 func TestExtractorWithChownErrorHandler(t *testing.T) {
 	testFiles := map[string]testFile{
-		"foo.go": testFile{mode: 0666},
-		"bar.go": testFile{mode: 0666},
+		"foo.go": {mode: 0666},
+		"bar.go": {mode: 0666},
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
@@ -157,7 +157,7 @@ func TestExtractorWithChownErrorHandler(t *testing.T) {
 	})
 }
 
-func benchmarkExtractOptions(b *testing.B, store bool, stdDeflate bool, options ...ExtractorOption) {
+func benchmarkExtractOptions(b *testing.B, store, stdDeflate bool, options ...ExtractorOption) {
 	files := make(map[string]os.FileInfo)
 	filepath.Walk(*archiveDir, func(filename string, fi os.FileInfo, err error) error {
 		files[filename] = fi

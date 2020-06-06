@@ -42,7 +42,7 @@ type Extractor struct {
 }
 
 // NewExtractor returns a new extractor.
-func NewExtractor(filename string, chroot string, opts ...ExtractorOption) (*Extractor, error) {
+func NewExtractor(filename, chroot string, opts ...ExtractorOption) (*Extractor, error) {
 	var err error
 	if chroot, err = filepath.Abs(chroot); err != nil {
 		return nil, err
@@ -124,7 +124,7 @@ func (e *Extractor) ExtractWithContext(ctx context.Context) (err error) {
 			return fmt.Errorf("%s cannot be extracted outside of chroot (%s)", path, e.chroot)
 		}
 
-		if err = os.MkdirAll(filepath.Dir(path), 0777); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
 			return err
 		}
 
@@ -159,7 +159,7 @@ func (e *Extractor) ExtractWithContext(ctx context.Context) (err error) {
 		}
 	}
 
-	if err = wg.Wait(); err != nil {
+	if err := wg.Wait(); err != nil {
 		return err
 	}
 
@@ -189,7 +189,8 @@ func (e *Extractor) createDirectory(path string, file *zip.File) error {
 	if os.IsExist(err) {
 		err = nil
 	}
-	return dinc(&e.entries, &err)
+	incOnSuccess(&e.entries, err)
+	return err
 }
 
 func (e *Extractor) createSymlink(path string, file *zip.File) error {
@@ -208,18 +209,17 @@ func (e *Extractor) createSymlink(path string, file *zip.File) error {
 		return err
 	}
 
-	if err = os.Symlink(string(name), path); err != nil {
+	if err := os.Symlink(string(name), path); err != nil {
 		return err
 	}
 
 	err = e.updateFileMetadata(path, file)
+	incOnSuccess(&e.entries, err)
 
-	return dinc(&e.entries, &err)
+	return err
 }
 
 func (e *Extractor) createFile(ctx context.Context, path string, file *zip.File) (err error) {
-	defer dinc(&e.entries, &err)
-
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -244,40 +244,47 @@ func (e *Extractor) createFile(ctx context.Context, path string, file *zip.File)
 		return err
 	}
 
-	return bw.Flush()
+	err = bw.Flush()
+	incOnSuccess(&e.entries, err)
+
+	return err
 }
 
-func (e *Extractor) updateFileMetadata(path string, file *zip.File) (err error) {
+func (e *Extractor) updateFileMetadata(path string, file *zip.File) error {
 	fields, err := zipextra.Parse(file.Extra)
 	if err != nil {
 		return err
 	}
 
-	if err = lchtimes(path, file.Mode(), time.Now(), file.Modified); err != nil {
+	if err := lchtimes(path, file.Mode(), time.Now(), file.Modified); err != nil {
 		return err
 	}
 
-	if err = lchmod(path, file.Mode()); err != nil {
+	if err := lchmod(path, file.Mode()); err != nil {
 		return err
 	}
 
-	if unixfield, ok := fields[zipextra.ExtraFieldUnixN]; ok {
-		unix, err := unixfield.InfoZIPNewUnix()
-		if err != nil {
-			return err
-		}
-
-		if err := lchown(path, int(unix.Uid.Int64()), int(unix.Gid.Int64())); err != nil {
-			if e.options.chownErrorHandler != nil {
-				e.m.Lock()
-				defer e.m.Unlock()
-
-				if err = e.options.chownErrorHandler(file.Name, err); err != nil {
-					return err
-				}
-			}
-		}
+	unixfield, ok := fields[zipextra.ExtraFieldUnixN]
+	if !ok {
+		return nil
 	}
 
-	return
+	unix, err := unixfield.InfoZIPNewUnix()
+	if err != nil {
+		return err
+	}
+
+	err = lchown(path, int(unix.Uid.Int64()), int(unix.Gid.Int64()))
+	if err != nil {
+		return nil
+	}
+
+	if e.options.chownErrorHandler == nil {
+		return nil
+	}
+
+	e.m.Lock()
+	defer e.m.Unlock()
+
+	return e.options.chownErrorHandler(file.Name, err)
 }

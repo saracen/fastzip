@@ -12,11 +12,10 @@ func dclose(c io.Closer, err *error) {
 	}
 }
 
-func dinc(inc *int64, err *error) error {
-	if err != nil {
+func incOnSuccess(inc *int64, err error) {
+	if err == nil {
 		atomic.AddInt64(inc, 1)
 	}
-	return *err
 }
 
 type countWriter struct {
