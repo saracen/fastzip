@@ -128,7 +128,9 @@ func (a *Archiver) ArchiveWithContext(ctx context.Context, files map[string]os.F
 		}
 	}()
 
-	for _, name := range names {
+	hdrs := make([]zip.FileHeader, len(names))
+
+	for i, name := range names {
 		fi := files[name]
 		if fi.Mode()&irregularModes != 0 {
 			continue
@@ -143,20 +145,13 @@ func (a *Archiver) ArchiveWithContext(ctx context.Context, files map[string]os.F
 			return fmt.Errorf("%s cannot be archived from outside of chroot (%s)", name, a.chroot)
 		}
 
-		hdr, err := zip.FileInfoHeader(fi)
-		if err != nil {
-			return err
-		}
-
 		rel, err := filepath.Rel(a.chroot, path)
 		if err != nil {
 			return err
 		}
 
-		hdr.Name = filepath.ToSlash(rel)
-		if hdr.Mode().IsDir() {
-			hdr.Name += "/"
-		}
+		hdr := &hdrs[i]
+		fileInfoHeader(rel, fi, hdr)
 
 		select {
 		case <-ctx.Done():
@@ -178,14 +173,15 @@ func (a *Archiver) ArchiveWithContext(ctx context.Context, files map[string]os.F
 
 			if fp == nil {
 				err = a.createFile(ctx, path, fi, hdr, nil)
-				err = dinc(&a.entries, &err)
+				incOnSuccess(&a.entries, err)
 			} else {
 				f := fp.Get()
 				wg.Go(func() error {
 					defer func() { fp.Put(f) }()
 
 					err := a.createFile(ctx, path, fi, hdr, f)
-					return dinc(&a.entries, &err)
+					incOnSuccess(&a.entries, err)
+					return err
 				})
 			}
 		}
@@ -198,12 +194,31 @@ func (a *Archiver) ArchiveWithContext(ctx context.Context, files map[string]os.F
 	return wg.Wait()
 }
 
+func fileInfoHeader(name string, fi os.FileInfo, hdr *zip.FileHeader) {
+	hdr.Name = name
+	if hdr.Mode().IsDir() {
+		hdr.Name += "/"
+	}
+
+	hdr.UncompressedSize64 = uint64(fi.Size())
+	hdr.Modified = fi.ModTime()
+	hdr.SetMode(fi.Mode())
+
+	const uint32max = (1 << 32) - 1
+	if hdr.UncompressedSize64 > uint32max {
+		hdr.UncompressedSize = uint32max
+	} else {
+		hdr.UncompressedSize = uint32(hdr.UncompressedSize64)
+	}
+}
+
 func (a *Archiver) createDirectory(fi os.FileInfo, hdr *zip.FileHeader) error {
 	a.m.Lock()
 	defer a.m.Unlock()
 
 	_, err := a.createHeader(fi, hdr)
-	return dinc(&a.entries, &err)
+	incOnSuccess(&a.entries, err)
+	return err
 }
 
 func (a *Archiver) createSymlink(path string, fi os.FileInfo, hdr *zip.FileHeader) error {
@@ -221,7 +236,8 @@ func (a *Archiver) createSymlink(path string, fi os.FileInfo, hdr *zip.FileHeade
 	}
 
 	_, err = io.WriteString(w, link)
-	return dinc(&a.entries, &err)
+	incOnSuccess(&a.entries, err)
+	return err
 }
 
 func (a *Archiver) createFile(ctx context.Context, path string, fi os.FileInfo, hdr *zip.FileHeader, tmp *filepool.File) (err error) {

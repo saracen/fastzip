@@ -41,9 +41,7 @@ func (fr *flateReader) Close() error {
 
 // FlateDecompressor returns a pooled performant zip.Decompressor.
 func FlateDecompressor() func(r io.Reader) io.ReadCloser {
-	pool := newFlateReaderPool(func(r io.Reader) io.ReadCloser {
-		return flate.NewReader(r)
-	})
+	pool := newFlateReaderPool(flate.NewReader)
 
 	return func(r io.Reader) io.ReadCloser {
 		fr := pool.Get().(*flateReader)
@@ -54,9 +52,7 @@ func FlateDecompressor() func(r io.Reader) io.ReadCloser {
 
 // StdFlateDecompressor returns a pooled standard library zip.Decompressor.
 func StdFlateDecompressor() func(r io.Reader) io.ReadCloser {
-	pool := newFlateReaderPool(func(r io.Reader) io.ReadCloser {
-		return stdflate.NewReader(r)
-	})
+	pool := newFlateReaderPool(stdflate.NewReader)
 
 	return func(r io.Reader) io.ReadCloser {
 		fr := pool.Get().(*flateReader)

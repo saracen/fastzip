@@ -74,6 +74,9 @@ func testCreateArchive(t *testing.T, dir string, files map[string]os.FileInfo, f
 	require.NoError(t, a.Archive(files))
 	require.NoError(t, a.Close())
 
+	_, entries := a.Written()
+	require.EqualValues(t, len(files), entries)
+
 	fn(f.Name(), dir)
 }
 
@@ -84,18 +87,18 @@ func TestArchive(t *testing.T) {
 	}
 
 	testFiles := map[string]testFile{
-		"foo":                 testFile{mode: os.ModeDir | 0777},
-		"foo/foo.go":          testFile{mode: 0666},
-		"bar":                 testFile{mode: os.ModeDir | 0777},
-		"bar/bar.go":          testFile{mode: 0666},
-		"bar/foo":             testFile{mode: os.ModeDir | 0777},
-		"bar/foo/bar":         testFile{mode: os.ModeDir | 0777},
-		"bar/foo/bar/foo":     testFile{mode: os.ModeDir | 0777},
-		"bar/foo/bar/foo/bar": testFile{mode: 0666},
-		"bar/symlink":         testFile{mode: os.ModeDir | os.ModeSymlink | symMode, contents: "bar/foo/bar/foo"},
-		"bar/symlink.go":      testFile{mode: os.ModeSymlink | symMode, contents: "foo/foo.go"},
-		"bar/compressible":    testFile{mode: 0666, contents: "11111111111111111111111111111111111111111111111111"},
-		"bar/uncompressible":  testFile{mode: 0666, contents: "A3#bez&OqCusPr)d&D]Vot9Eo0z^5O*VZm3:sO3HptL.H-4cOv"},
+		"foo":                 {mode: os.ModeDir | 0777},
+		"foo/foo.go":          {mode: 0666},
+		"bar":                 {mode: os.ModeDir | 0777},
+		"bar/bar.go":          {mode: 0666},
+		"bar/foo":             {mode: os.ModeDir | 0777},
+		"bar/foo/bar":         {mode: os.ModeDir | 0777},
+		"bar/foo/bar/foo":     {mode: os.ModeDir | 0777},
+		"bar/foo/bar/foo/bar": {mode: 0666},
+		"bar/symlink":         {mode: os.ModeDir | os.ModeSymlink | symMode, contents: "bar/foo/bar/foo"},
+		"bar/symlink.go":      {mode: os.ModeSymlink | symMode, contents: "foo/foo.go"},
+		"bar/compressible":    {mode: 0666, contents: "11111111111111111111111111111111111111111111111111"},
+		"bar/uncompressible":  {mode: 0666, contents: "A3#bez&OqCusPr)d&D]Vot9Eo0z^5O*VZm3:sO3HptL.H-4cOv"},
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
@@ -109,8 +112,8 @@ func TestArchive(t *testing.T) {
 func TestArchiveCancelContext(t *testing.T) {
 	twoMB := strings.Repeat("1", 2*1024*1024)
 	testFiles := map[string]testFile{
-		"foo.go": testFile{mode: 0666, contents: twoMB},
-		"bar.go": testFile{mode: 0666, contents: twoMB},
+		"foo.go": {mode: 0666, contents: twoMB},
+		"bar.go": {mode: 0666, contents: twoMB},
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
@@ -155,8 +158,8 @@ func TestArchiveCancelContext(t *testing.T) {
 
 func TestArchiveWithCompressor(t *testing.T) {
 	testFiles := map[string]testFile{
-		"foo.go": testFile{mode: 0666},
-		"bar.go": testFile{mode: 0666},
+		"foo.go": {mode: 0666},
+		"bar.go": {mode: 0666},
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
@@ -173,13 +176,17 @@ func TestArchiveWithCompressor(t *testing.T) {
 	require.NoError(t, a.Archive(files))
 	require.NoError(t, a.Close())
 
+	bytes, entries := a.Written()
+	require.EqualValues(t, 0, bytes)
+	require.EqualValues(t, 3, entries)
+
 	testExtract(t, f.Name(), testFiles)
 }
 
 func TestArchiveWithMethod(t *testing.T) {
 	testFiles := map[string]testFile{
-		"foo.go": testFile{mode: 0666},
-		"bar.go": testFile{mode: 0666},
+		"foo.go": {mode: 0666},
+		"bar.go": {mode: 0666},
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
@@ -195,13 +202,17 @@ func TestArchiveWithMethod(t *testing.T) {
 	require.NoError(t, a.Archive(files))
 	require.NoError(t, a.Close())
 
+	bytes, entries := a.Written()
+	require.EqualValues(t, 0, bytes)
+	require.EqualValues(t, 3, entries)
+
 	testExtract(t, f.Name(), testFiles)
 }
 
 func TestArchiveWithStageDirectory(t *testing.T) {
 	testFiles := map[string]testFile{
-		"foo.go": testFile{mode: 0666},
-		"bar.go": testFile{mode: 0666},
+		"foo.go": {mode: 0666},
+		"bar.go": {mode: 0666},
 	}
 
 	files, chroot := testCreateFiles(t, testFiles)
@@ -221,6 +232,10 @@ func TestArchiveWithStageDirectory(t *testing.T) {
 	require.NoError(t, a.Archive(files))
 	require.NoError(t, a.Close())
 
+	bytes, entries := a.Written()
+	require.EqualValues(t, 0, bytes)
+	require.EqualValues(t, 3, entries)
+
 	stageFiles, err := ioutil.ReadDir(dir)
 	require.NoError(t, err)
 	require.Zero(t, len(stageFiles))
@@ -230,8 +245,8 @@ func TestArchiveWithStageDirectory(t *testing.T) {
 
 func TestArchiveWithConcurrency(t *testing.T) {
 	testFiles := map[string]testFile{
-		"foo.go": testFile{mode: 0666},
-		"bar.go": testFile{mode: 0666},
+		"foo.go": {mode: 0666},
+		"bar.go": {mode: 0666},
 	}
 
 	concurrencyTests := []struct {
@@ -263,6 +278,10 @@ func TestArchiveWithConcurrency(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, a.Archive(files))
 			require.NoError(t, a.Close())
+
+			bytes, entries := a.Written()
+			require.EqualValues(t, 0, bytes)
+			require.EqualValues(t, 3, entries)
 
 			testExtract(t, f.Name(), testFiles)
 		}()
@@ -318,8 +337,8 @@ func TestArchiveChroot(t *testing.T) {
 
 func TestArchiveWithOffset(t *testing.T) {
 	testFiles := map[string]testFile{
-		"foo.go": testFile{mode: 0666},
-		"bar.go": testFile{mode: 0666},
+		"foo.go": {mode: 0666},
+		"bar.go": {mode: 0666},
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
@@ -336,6 +355,10 @@ func TestArchiveWithOffset(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, a.Archive(files))
 	require.NoError(t, a.Close())
+
+	bytes, entries := a.Written()
+	require.EqualValues(t, 0, bytes)
+	require.EqualValues(t, 3, entries)
 
 	testExtract(t, f.Name(), testFiles)
 }
