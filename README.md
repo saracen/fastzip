@@ -43,7 +43,7 @@ err = filepath.Walk("~/fastzip-archiving", func(pathname string, info os.FileInf
 })
 
 // Archive
-if err = a.Archive(files); err != nil {
+if err = a.Archive(context.Background(), files); err != nil {
   panic(err)
 }
 ```
@@ -58,7 +58,7 @@ if err != nil {
 defer e.Close()
 
 // Extract archive files
-if err = e.Extract(); err != nil {
+if err = e.Extract(context.Background()); err != nil {
   panic(err)
 }
 ```

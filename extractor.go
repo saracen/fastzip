@@ -92,14 +92,9 @@ func (e *Extractor) Written() (bytes, entries int64) {
 	return atomic.LoadInt64(&e.written), atomic.LoadInt64(&e.entries)
 }
 
-// Extract calls ExtractWithContext with a background context.
-func (e *Extractor) Extract() error {
-	return e.ExtractWithContext(context.Background())
-}
-
-// ExtractWithContext extracts files, creates symlinks and directories from the
+// Extract extracts files, creates symlinks and directories from the
 // archive.
-func (e *Extractor) ExtractWithContext(ctx context.Context) (err error) {
+func (e *Extractor) Extract(ctx context.Context) (err error) {
 	limiter := make(chan struct{}, e.options.concurrency)
 
 	wg, ctx := errgroup.WithContext(ctx)
