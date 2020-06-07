@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/saracen/fastzip/internal/zip"
+	"github.com/klauspost/compress/zip"
 )
 
 func (a *Archiver) createHeader(fi os.FileInfo, hdr *zip.FileHeader) (io.Writer, error) {

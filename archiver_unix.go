@@ -8,7 +8,7 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/saracen/fastzip/internal/zip"
+	"github.com/klauspost/compress/zip"
 	"github.com/saracen/zipextra"
 )
 
