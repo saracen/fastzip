@@ -13,8 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/klauspost/compress/zip"
 	"github.com/saracen/fastzip/internal/filepool"
-	"github.com/saracen/fastzip/internal/zip"
 	"golang.org/x/sync/errgroup"
 )
 

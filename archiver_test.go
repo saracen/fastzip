@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/saracen/fastzip/internal/zip"
+	"github.com/klauspost/compress/zip"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
