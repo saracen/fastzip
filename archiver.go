@@ -269,8 +269,7 @@ func (a *Archiver) createFile(ctx context.Context, path string, fi os.FileInfo, 
 		return err
 	}
 
-	cw := countWriter{fw, &a.written, ctx}
-	_, err = io.Copy(io.MultiWriter(cw, tmp.Hasher()), br)
+	_, err = io.Copy(io.MultiWriter(fw, tmp.Hasher()), br)
 	dclose(fw, &err)
 	if err != nil {
 		return err
@@ -293,6 +292,6 @@ func (a *Archiver) createFile(ctx context.Context, path string, fi os.FileInfo, 
 	}
 
 	br.Reset(tmp)
-	_, err = io.Copy(w, br)
+	_, err = br.WriteTo(countWriter{w, &a.written, ctx})
 	return err
 }
