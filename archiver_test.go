@@ -124,7 +124,7 @@ func TestArchiveCancelContext(t *testing.T) {
 	defer os.Remove(f.Name())
 	defer f.Close()
 
-	a, err := NewArchiver(f, dir)
+	a, err := NewArchiver(f, dir, WithArchiverConcurrency(1))
 	a.RegisterCompressor(zip.Deflate, FlateCompressor(1))
 	require.NoError(t, err)
 
