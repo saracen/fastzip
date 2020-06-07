@@ -94,13 +94,8 @@ func (a *Archiver) Written() (bytes, entries int64) {
 	return atomic.LoadInt64(&a.written), atomic.LoadInt64(&a.entries)
 }
 
-// Archive calls ArchiveWithContext with a background context.
-func (a *Archiver) Archive(files map[string]os.FileInfo) (err error) {
-	return a.ArchiveWithContext(context.Background(), files)
-}
-
-// ArchiveWithContext archives all files, symlinks and directories.
-func (a *Archiver) ArchiveWithContext(ctx context.Context, files map[string]os.FileInfo) (err error) {
+// Archive archives all files, symlinks and directories.
+func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (err error) {
 	names := make([]string, 0, len(files))
 	for name := range files {
 		names = append(names, name)

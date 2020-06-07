@@ -22,7 +22,7 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) {
 	require.NoError(t, err)
 	defer e.Close()
 
-	require.NoError(t, e.Extract())
+	require.NoError(t, e.Extract(context.Background()))
 
 	err = filepath.Walk(dir, func(pathname string, fi os.FileInfo, err error) error {
 		if err != nil {
@@ -70,7 +70,7 @@ func TestExtractCancelContext(t *testing.T) {
 		go func() {
 			defer func() { done <- struct{}{} }()
 
-			require.EqualError(t, e.ExtractWithContext(ctx), "context canceled")
+			require.EqualError(t, e.Extract(ctx), "context canceled")
 		}()
 
 		for {
@@ -103,7 +103,7 @@ func TestExtractorWithDecompressor(t *testing.T) {
 		e.RegisterDecompressor(zip.Deflate, StdFlateDecompressor())
 		defer e.Close()
 
-		require.NoError(t, e.Extract())
+		require.NoError(t, e.Extract(context.Background()))
 	})
 }
 
@@ -182,7 +182,7 @@ func benchmarkExtractOptions(b *testing.B, store, stdDeflate bool, options ...Ex
 	}
 	require.NoError(b, err)
 
-	err = a.Archive(files)
+	err = a.Archive(context.Background(), files)
 	require.NoError(b, err)
 	require.NoError(b, a.Close())
 	require.NoError(b, f.Close())
@@ -198,7 +198,7 @@ func benchmarkExtractOptions(b *testing.B, store, stdDeflate bool, options ...Ex
 			e.RegisterDecompressor(zip.Deflate, StdFlateDecompressor())
 		}
 		require.NoError(b, err)
-		require.NoError(b, e.Extract())
+		require.NoError(b, e.Extract(context.Background()))
 	}
 }
 
