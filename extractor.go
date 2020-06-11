@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -33,7 +34,8 @@ var defaultDecompressor = FlateDecompressor()
 //
 // Access permissions, ownership (unix) and modification times are preserved.
 type Extractor struct {
-	zr      *zip.ReadCloser
+	zr      *zip.Reader
+	closer  io.Closer
 	m       sync.Mutex
 	options extractorOptions
 	chroot  string
@@ -41,8 +43,34 @@ type Extractor struct {
 	written, entries int64
 }
 
-// NewExtractor returns a new extractor.
+// NewExtractor opens a zip file and returns a new extractor.
+//
+// Close() should be called to close the extractor's underlying zip.Reader
+// when done.
 func NewExtractor(filename, chroot string, opts ...ExtractorOption) (*Extractor, error) {
+	zr, err := zip.OpenReader(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	return newExtractor(&zr.Reader, zr, chroot, opts)
+}
+
+// NewExtractor returns a new extractor, reading from the reader provided.
+//
+// The size of the archive should be provided.
+//
+// Unlike with NewExtractor(), calling Close() on the extractor is unnecessary.
+func NewExtractorFromReader(r io.ReaderAt, size int64, chroot string, opts ...ExtractorOption) (*Extractor, error) {
+	zr, err := zip.NewReader(r, size)
+	if err != nil {
+		return nil, err
+	}
+
+	return newExtractor(zr, nil, chroot, opts)
+}
+
+func newExtractor(r *zip.Reader, c io.Closer, chroot string, opts []ExtractorOption) (*Extractor, error) {
 	var err error
 	if chroot, err = filepath.Abs(chroot); err != nil {
 		return nil, err
@@ -50,6 +78,8 @@ func NewExtractor(filename, chroot string, opts ...ExtractorOption) (*Extractor,
 
 	e := &Extractor{
 		chroot: chroot,
+		zr:     r,
+		closer: c,
 	}
 
 	e.options.concurrency = runtime.NumCPU()
@@ -58,11 +88,6 @@ func NewExtractor(filename, chroot string, opts ...ExtractorOption) (*Extractor,
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	e.zr, err = zip.OpenReader(filename)
-	if err != nil {
-		return nil, err
 	}
 
 	e.RegisterDecompressor(zip.Deflate, defaultDecompressor)
@@ -83,7 +108,10 @@ func (e *Extractor) Files() []*zip.File {
 
 // Close closes the underlying ZipReader.
 func (e *Extractor) Close() error {
-	return e.zr.Close()
+	if e.closer == nil {
+		return nil
+	}
+	return e.closer.Close()
 }
 
 // Written returns how many bytes and entries have been written to disk.
