@@ -1,6 +1,7 @@
 package filepool
 
 import (
+	"errors"
 	"fmt"
 	"hash"
 	"hash/crc32"
@@ -9,6 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 )
+
+var ErrPoolSizeLessThanZero = errors.New("pool size must be greater than zero")
+
+const defaultBufferSize = 2 * 1024 * 1024
 
 type filePoolCloseError []error
 
@@ -43,22 +48,24 @@ type FilePool struct {
 }
 
 // New returns a new FilePool.
-func New(dir string, size int) (*FilePool, error) {
-	if size <= 0 {
-		return nil, fmt.Errorf("pool size must be greater than zero")
+func New(dir string, poolSize int, bufferSize int) (*FilePool, error) {
+	if poolSize <= 0 {
+		return nil, ErrPoolSizeLessThanZero
 	}
 	fp := &FilePool{}
 
-	fp.files = make([]*File, size)
-	fp.limiter = make(chan int, size)
+	fp.files = make([]*File, poolSize)
+	fp.limiter = make(chan int, poolSize)
 
-	var err error
+	switch bufferSize {
+	case -1:
+		bufferSize = 0
+	case 0:
+		bufferSize = defaultBufferSize
+	}
+
 	for i := range fp.files {
-		fp.files[i], err = newFile(dir, i)
-		if err != nil {
-			fp.Close()
-			return nil, err
-		}
+		fp.files[i] = newFile(dir, i, bufferSize)
 		fp.limiter <- i
 	}
 
@@ -81,7 +88,7 @@ func (fp *FilePool) Put(f *File) {
 func (fp *FilePool) Close() error {
 	var err filePoolCloseError
 	for _, f := range fp.files {
-		if f == nil {
+		if f == nil || f.f == nil {
 			continue
 		}
 
@@ -102,24 +109,55 @@ func (fp *FilePool) Close() error {
 
 // File is a file backed buffer.
 type File struct {
-	f   *os.File
+	dir string
 	idx int
 	w   int64
 	r   int64
 	crc hash.Hash32
+
+	f    *os.File
+	buf  []byte
+	size int
 }
 
-func newFile(dir string, idx int) (f *File, err error) {
-	f = &File{idx: idx}
-	f.crc = crc32.NewIEEE()
-	f.f, err = os.Create(filepath.Join(dir, fmt.Sprintf("fastzip_%02d", idx)))
-	return
+func newFile(dir string, idx, size int) *File {
+	return &File{
+		dir:  dir,
+		idx:  idx,
+		size: size,
+		crc:  crc32.NewIEEE(),
+	}
 }
 
 func (f *File) Write(p []byte) (n int, err error) {
-	n, err = f.f.WriteAt(p, f.w)
-	f.w += int64(n)
-	return
+	if f.buf == nil && f.size > 0 {
+		f.buf = make([]byte, f.size)
+	}
+
+	if f.w < int64(len(f.buf)) {
+		n = copy(f.buf[f.w:], p)
+		p = p[n:]
+		f.w += int64(n)
+	}
+
+	if len(p) > 0 {
+		if f.f == nil {
+			f.f, err = os.Create(filepath.Join(f.dir, fmt.Sprintf("fastzip_%02d", f.idx)))
+			if err != nil {
+				return n, err
+			}
+		}
+
+		bn := n
+		n, err = f.f.WriteAt(p, f.w-int64(len(f.buf)))
+		f.w += int64(n)
+		n += bn
+		if err != nil {
+			return n, err
+		}
+	}
+
+	return n, err
 }
 
 func (f *File) Read(p []byte) (n int, err error) {
@@ -128,11 +166,23 @@ func (f *File) Read(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 	if int64(len(p)) > remaining {
-		p = p[0:remaining]
+		p = p[:remaining]
 	}
-	n, err = f.f.ReadAt(p, f.r)
-	f.r += int64(n)
-	return
+
+	if f.r < int64(len(f.buf)) {
+		n = copy(p, f.buf[f.r:])
+		f.r += int64(n)
+		p = p[n:]
+	}
+
+	if len(p) > 0 && f.r >= int64(len(f.buf)) {
+		bn := n
+		n, err = f.f.ReadAt(p, f.r-int64(len(f.buf)))
+		f.r += int64(n)
+		n += bn
+	}
+
+	return n, err
 }
 
 func (f *File) Written() uint64 {
@@ -151,4 +201,7 @@ func (f *File) reset() {
 	f.w = 0
 	f.r = 0
 	f.crc.Reset()
+	if f.f != nil {
+		f.f.Truncate(0)
+	}
 }
