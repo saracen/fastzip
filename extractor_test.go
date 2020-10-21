@@ -150,9 +150,11 @@ func TestExtractorWithChownErrorHandler(t *testing.T) {
 
 	testCreateArchive(t, dir, files, func(filename, chroot string) {
 		e, err := NewExtractor(filename, dir, WithExtractorChownErrorHandler(func(name string, err error) error {
+			assert.Fail(t, "should have no error")
 			return nil
 		}))
 		assert.NoError(t, err)
+		assert.NoError(t, e.Extract(context.Background()))
 		require.NoError(t, e.Close())
 	})
 }
