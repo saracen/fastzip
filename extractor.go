@@ -296,7 +296,7 @@ func (e *Extractor) updateFileMetadata(path string, file *zip.File) error {
 	}
 
 	err = lchown(path, int(unix.Uid.Int64()), int(unix.Gid.Int64()))
-	if err != nil {
+	if err == nil {
 		return nil
 	}
 
