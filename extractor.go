@@ -151,10 +151,8 @@ func (e *Extractor) Extract(ctx context.Context) (err error) {
 			return err
 		}
 
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return ctx.Err()
-		default:
 		}
 
 		switch {
