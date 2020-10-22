@@ -152,12 +152,12 @@ func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (e
 			return ctx.Err()
 		}
 
-		switch hdr.Mode() & os.ModeType {
-		case os.ModeDir:
-			err = a.createDirectory(fi, hdr)
-
-		case os.ModeSymlink:
+		switch {
+		case hdr.Mode()&os.ModeSymlink != 0:
 			err = a.createSymlink(path, fi, hdr)
+
+		case hdr.Mode().IsDir():
+			err = a.createDirectory(fi, hdr)
 
 		default:
 			if hdr.UncompressedSize64 > 0 {
@@ -188,13 +188,13 @@ func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (e
 
 func fileInfoHeader(name string, fi os.FileInfo, hdr *zip.FileHeader) {
 	hdr.Name = name
-	if hdr.Mode().IsDir() {
-		hdr.Name += "/"
-	}
-
 	hdr.UncompressedSize64 = uint64(fi.Size())
 	hdr.Modified = fi.ModTime()
 	hdr.SetMode(fi.Mode())
+
+	if hdr.Mode().IsDir() {
+		hdr.Name += "/"
+	}
 
 	const uint32max = (1 << 32) - 1
 	if hdr.UncompressedSize64 > uint32max {

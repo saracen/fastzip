@@ -40,7 +40,9 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) {
 		require.Contains(t, files, rel)
 
 		mode := files[rel].mode
-		assert.Equal(t, mode.Perm(), fi.Mode().Perm(), "file %v modes not equal", rel)
+		assert.Equal(t, mode.Perm(), fi.Mode().Perm(), "file %v perm not equal", rel)
+		assert.Equal(t, mode.IsDir(), fi.IsDir(), "file %v is_dir not equal", rel)
+		assert.Equal(t, mode&os.ModeSymlink, fi.Mode()&os.ModeSymlink, "file %v mode symlink not equal", rel)
 
 		if fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
 			return nil
