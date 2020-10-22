@@ -42,6 +42,14 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) {
 		mode := files[rel].mode
 		assert.Equal(t, mode.Perm(), fi.Mode().Perm(), "file %v modes not equal", rel)
 
+		if fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+
+		contents, err := ioutil.ReadFile(pathname)
+		require.NoError(t, err)
+		assert.Equal(t, string(files[rel].contents), string(contents))
+
 		return nil
 	})
 	require.NoError(t, err)
