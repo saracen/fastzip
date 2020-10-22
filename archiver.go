@@ -239,11 +239,7 @@ func (a *Archiver) createFile(ctx context.Context, path string, fi os.FileInfo, 
 	}
 	defer f.Close()
 
-	br := bufioReaderPool.Get().(*bufio.Reader)
-	defer bufioReaderPool.Put(br)
-	br.Reset(f)
-
-	return a.compressFile(ctx, br, fi, hdr, tmp)
+	return a.compressFile(ctx, f, fi, hdr, tmp)
 }
 
 // compressFile pre-compresses the file first to a file from the filepool,
@@ -252,18 +248,22 @@ func (a *Archiver) createFile(ctx context.Context, path string, fi os.FileInfo, 
 // If no filepool file is available (when using a concurrency of 1) or the
 // compressed file is larger than the uncompressed version, the file is moved
 // to the zip file using the conventional zip.CreateHeader.
-func (a *Archiver) compressFile(ctx context.Context, br *bufio.Reader, fi os.FileInfo, hdr *zip.FileHeader, tmp *filepool.File) error {
+func (a *Archiver) compressFile(ctx context.Context, f *os.File, fi os.FileInfo, hdr *zip.FileHeader, tmp *filepool.File) error {
 	comp, ok := a.compressors[hdr.Method]
 	// if we don't have the registered compressor, it most likely means Store is
 	// being used, so we revert to non-concurrent behaviour
 	if !ok || tmp == nil {
-		return a.compressFileSimple(ctx, br, fi, hdr)
+		return a.compressFileSimple(ctx, f, fi, hdr)
 	}
 
 	fw, err := comp(tmp)
 	if err != nil {
 		return err
 	}
+
+	br := bufioReaderPool.Get().(*bufio.Reader)
+	defer bufioReaderPool.Put(br)
+	br.Reset(f)
 
 	_, err = io.Copy(io.MultiWriter(fw, tmp.Hasher()), br)
 	dclose(fw, &err)
@@ -274,8 +274,9 @@ func (a *Archiver) compressFile(ctx context.Context, br *bufio.Reader, fi os.Fil
 	hdr.CompressedSize64 = tmp.Written()
 	// if compressed file is larger, use the uncompressed version.
 	if hdr.CompressedSize64 > hdr.UncompressedSize64 {
+		f.Seek(0, io.SeekStart)
 		hdr.Method = zip.Store
-		return a.compressFileSimple(ctx, br, fi, hdr)
+		return a.compressFileSimple(ctx, f, fi, hdr)
 	}
 	hdr.CRC32 = tmp.Checksum()
 
@@ -295,7 +296,11 @@ func (a *Archiver) compressFile(ctx context.Context, br *bufio.Reader, fi os.Fil
 // compressFileSimple uses the conventional zip.createHeader. This differs from
 // compressFile as it locks the zip _whilst_ compressing (if the method is not
 // Store).
-func (a *Archiver) compressFileSimple(ctx context.Context, br *bufio.Reader, fi os.FileInfo, hdr *zip.FileHeader) error {
+func (a *Archiver) compressFileSimple(ctx context.Context, f *os.File, fi os.FileInfo, hdr *zip.FileHeader) error {
+	br := bufioReaderPool.Get().(*bufio.Reader)
+	defer bufioReaderPool.Put(br)
+	br.Reset(f)
+
 	a.m.Lock()
 	defer a.m.Unlock()
 
