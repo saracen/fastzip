@@ -192,6 +192,39 @@ func TestExtractorFromReader(t *testing.T) {
 	})
 }
 
+func TestExtractorDetectSymlinkTraversal(t *testing.T) {
+	dir, err := ioutil.TempDir("", "")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	archivePath := filepath.Join(dir, "vuln.zip")
+	f, err := os.Create(archivePath)
+	require.NoError(t, err)
+	zw := zip.NewWriter(f)
+
+	// create symlink
+	symlink := &zip.FileHeader{Name: "root/inner"}
+	symlink.SetMode(os.ModeSymlink)
+	w, err := zw.CreateHeader(symlink)
+	require.NoError(t, err)
+
+	_, err = w.Write([]byte("../"))
+	require.NoError(t, err)
+
+	// create file within symlink
+	_, err = zw.Create("root/inner/vuln")
+	require.NoError(t, err)
+
+	zw.Close()
+	f.Close()
+
+	e, err := NewExtractor(archivePath, dir)
+	require.NoError(t, err)
+	defer e.Close()
+
+	require.Error(t, e.Extract(context.Background()))
+}
+
 func benchmarkExtractOptions(b *testing.B, store, stdDeflate bool, options ...ExtractorOption) {
 	files := make(map[string]os.FileInfo)
 	filepath.Walk(*archiveDir, func(filename string, fi os.FileInfo, err error) error {
