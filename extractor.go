@@ -147,7 +147,7 @@ func (e *Extractor) Extract(ctx context.Context) (err error) {
 			return fmt.Errorf("%s cannot be extracted outside of chroot (%s)", path, e.chroot)
 		}
 
-		if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return err
 		}
 
@@ -156,11 +156,14 @@ func (e *Extractor) Extract(ctx context.Context) (err error) {
 		}
 
 		switch {
+		case file.Mode()&os.ModeSymlink != 0:
+			// defer the creation of symlinks
+			// this is to prevent a traversal vulnerability where a symlink is
+			// first created and then files are additional extracted into it
+			continue
+
 		case file.Mode().IsDir():
 			err = e.createDirectory(path, file)
-
-		case file.Mode()&os.ModeSymlink != 0:
-			err = e.createSymlink(path, file)
 
 		default:
 			limiter <- struct{}{}
@@ -184,16 +187,23 @@ func (e *Extractor) Extract(ctx context.Context) (err error) {
 		return err
 	}
 
-	// update directory metadata last, otherwise modification dates are
-	// incorrect.
+	// handle deferred symlink creation and update directory metadata
+	// (otherwise modification dates are incorrect)
 	for _, file := range e.zr.File {
-		if !file.Mode().IsDir() {
+		if file.Mode()&os.ModeSymlink == 0 && !file.Mode().IsDir() {
 			continue
 		}
 
 		path, err := filepath.Abs(filepath.Join(e.chroot, file.Name))
 		if err != nil {
 			return err
+		}
+
+		if file.Mode()&os.ModeSymlink != 0 {
+			if err := e.createSymlink(path, file); err != nil {
+				return err
+			}
+			continue
 		}
 
 		err = e.updateFileMetadata(path, file)
