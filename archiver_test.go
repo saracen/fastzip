@@ -63,13 +63,13 @@ func testCreateFiles(t *testing.T, files map[string]testFile) (map[string]os.Fil
 	return archiveFiles, dir
 }
 
-func testCreateArchive(t *testing.T, dir string, files map[string]os.FileInfo, fn func(filename, chroot string)) {
+func testCreateArchive(t *testing.T, dir string, files map[string]os.FileInfo, fn func(filename, chroot string), opts ...ArchiverOption) {
 	f, err := ioutil.TempFile("", "fastzip-test")
 	require.NoError(t, err)
 	defer os.Remove(f.Name())
 	defer f.Close()
 
-	a, err := NewArchiver(f, dir)
+	a, err := NewArchiver(f, dir, opts...)
 	require.NoError(t, err)
 	require.NoError(t, a.Archive(context.Background(), files))
 	require.NoError(t, a.Close())
@@ -102,12 +102,23 @@ func TestArchive(t *testing.T) {
 		"empty_dir":           {mode: os.ModeDir | 0777},
 	}
 
-	files, dir := testCreateFiles(t, testFiles)
-	defer os.RemoveAll(dir)
+	tests := map[string][]ArchiverOption{
+		"default options":    nil,
+		"no buffer":          {WithArchiverBufferSize(-1)},
+		"with store":         {WithArchiverMethod(zip.Store)},
+		"with concurrency 2": {WithArchiverConcurrency(2)},
+	}
 
-	testCreateArchive(t, dir, files, func(filename, chroot string) {
-		testExtract(t, filename, testFiles)
-	})
+	for tn, opts := range tests {
+		t.Run(tn, func(t *testing.T) {
+			files, dir := testCreateFiles(t, testFiles)
+			defer os.RemoveAll(dir)
+
+			testCreateArchive(t, dir, files, func(filename, chroot string) {
+				testExtract(t, filename, testFiles)
+			}, opts...)
+		})
+	}
 }
 
 func TestArchiveCancelContext(t *testing.T) {

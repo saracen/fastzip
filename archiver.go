@@ -109,7 +109,7 @@ func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (e
 		concurrency = len(files)
 	}
 	if concurrency > 1 {
-		fp, err = filepool.New(a.options.stageDir, concurrency)
+		fp, err = filepool.New(a.options.stageDir, concurrency, a.options.bufferSize)
 		if err != nil {
 			return err
 		}
