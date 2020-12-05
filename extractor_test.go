@@ -2,6 +2,7 @@ package fastzip
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -59,11 +60,9 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) {
 
 func TestExtractCancelContext(t *testing.T) {
 	twoMB := strings.Repeat("1", 2*1024*1024)
-	testFiles := map[string]testFile{
-		"foo.go":    {mode: 0666, contents: twoMB},
-		"bar.go":    {mode: 0666, contents: twoMB},
-		"foobar.go": {mode: 0666, contents: twoMB},
-		"barfoo.go": {mode: 0666, contents: twoMB},
+	testFiles := map[string]testFile{}
+	for i := 0; i < 100; i++ {
+		testFiles[fmt.Sprintf("file_%d", i)] = testFile{mode: 0666, contents: twoMB}
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
