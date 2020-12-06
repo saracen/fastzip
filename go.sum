@@ -2,10 +2,14 @@ github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/klauspost/compress v1.11.2 h1:MiK62aErc3gIiVEtyzKfeOHgW7atJb5g/KNX5m3c2nQ=
 github.com/klauspost/compress v1.11.2/go.mod h1:aoV0uJVorq1K+umq18yTdKaF57EivdYsUV+/s2qKfXs=
+github.com/klauspost/compress v1.11.3 h1:dB4Bn0tN3wdCzQxnS8r06kV74qN/TAfaIS0bVE8h3jc=
+github.com/klauspost/compress v1.11.3/go.mod h1:aoV0uJVorq1K+umq18yTdKaF57EivdYsUV+/s2qKfXs=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/saracen/zipextra v0.0.0-20191018034721-f8fcc2e1b58e h1:psyRxwoYbvGxzM8WucxDD5TJ994ePVteYpeb4BIZVic=
 github.com/saracen/zipextra v0.0.0-20191018034721-f8fcc2e1b58e/go.mod h1:6Zk1rDeZXl7t6qPppqntIzWu6A+k9OYmT1LzehKE6e0=
+github.com/saracen/zipextra v0.0.0-20201205103923-7347a2ee3f10 h1:UdM0Zmjq5MlMEnSu1M+dbJI6/YwlNLiO6p+IJJ3au4A=
+github.com/saracen/zipextra v0.0.0-20201205103923-7347a2ee3f10/go.mod h1:6Zk1rDeZXl7t6qPppqntIzWu6A+k9OYmT1LzehKE6e0=
 github.com/stretchr/objx v0.1.0 h1:4G4v2dO3VZwixGIRoQ5Lfboy6nUhCyYzaqnIAPPhYs4=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.6.1 h1:hDPOHmpOpP40lSULcqw7IrRb/u7w6RpDC9399XyoNd0=

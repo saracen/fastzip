@@ -3,6 +3,7 @@ package fastzip
 import (
 	"context"
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -123,9 +124,9 @@ func TestArchive(t *testing.T) {
 
 func TestArchiveCancelContext(t *testing.T) {
 	twoMB := strings.Repeat("1", 2*1024*1024)
-	testFiles := map[string]testFile{
-		"foo.go": {mode: 0666, contents: twoMB},
-		"bar.go": {mode: 0666, contents: twoMB},
+	testFiles := map[string]testFile{}
+	for i := 0; i < 100; i++ {
+		testFiles[fmt.Sprintf("file_%d", i)] = testFile{mode: 0666, contents: twoMB}
 	}
 
 	files, dir := testCreateFiles(t, testFiles)
