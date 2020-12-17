@@ -23,6 +23,10 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) {
 	require.NoError(t, err)
 	defer e.Close()
 
+	for _, f := range e.Files() {
+		assert.Equal(t, filepath.ToSlash(f.Name), f.Name, "zip file path separator not /")
+	}
+
 	require.NoError(t, e.Extract(context.Background()))
 
 	err = filepath.Walk(dir, func(pathname string, fi os.FileInfo, err error) error {
