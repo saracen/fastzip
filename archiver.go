@@ -187,7 +187,7 @@ func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (e
 }
 
 func fileInfoHeader(name string, fi os.FileInfo, hdr *zip.FileHeader) {
-	hdr.Name = name
+	hdr.Name = filepath.ToSlash(name)
 	hdr.UncompressedSize64 = uint64(fi.Size())
 	hdr.Modified = fi.ModTime()
 	hdr.SetMode(fi.Mode())
