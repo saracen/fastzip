@@ -147,7 +147,7 @@ func (e *Extractor) Extract(ctx context.Context) (err error) {
 			return fmt.Errorf("%s cannot be extracted outside of chroot (%s)", path, e.chroot)
 		}
 
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
 			return err
 		}
 
@@ -261,7 +261,7 @@ func (e *Extractor) createFile(ctx context.Context, path string, file *zip.File)
 	}
 	defer dclose(r, &err)
 
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return err
 	}
