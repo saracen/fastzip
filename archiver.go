@@ -136,7 +136,7 @@ func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (e
 			return err
 		}
 
-		if !strings.HasPrefix(path, a.chroot) {
+		if !strings.HasPrefix(path, a.chroot+string(filepath.Separator)) && path != a.chroot {
 			return fmt.Errorf("%s cannot be archived from outside of chroot (%s)", name, a.chroot)
 		}
 
