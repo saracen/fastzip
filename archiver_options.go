@@ -4,7 +4,10 @@ import (
 	"errors"
 )
 
-var ErrMinConcurrency = errors.New("concurrency must be at least 1")
+var (
+	ErrMinConcurrency = errors.New("concurrency must be at least 1")
+	ErrMinBufferSize  = errors.New("buffer size option cannot be less than -1")
+)
 
 // ArchiverOption is an option used when creating an archiver.
 type ArchiverOption func(*archiverOptions) error
@@ -47,6 +50,9 @@ func WithArchiverConcurrency(n int) ArchiverOption {
 // written to temporary files before being written back to the zip file.
 func WithArchiverBufferSize(n int) ArchiverOption {
 	return func(o *archiverOptions) error {
+		if n < -1 {
+			return ErrMinBufferSize
+		}
 		o.bufferSize = n
 		return nil
 	}
