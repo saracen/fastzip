@@ -301,6 +301,53 @@ func TestArchiveWithConcurrency(t *testing.T) {
 	}
 }
 
+func TestArchiveWithBufferSize(t *testing.T) {
+	testFiles := map[string]testFile{
+		"foo.go": {mode: 0666},
+		"bar.go": {mode: 0666},
+	}
+
+	tests := []struct {
+		buffersize int
+		pass       bool
+	}{
+		{-100, false},
+		{-2, false},
+		{-1, true},
+		{0, true},
+		{32 * 1024, true},
+		{64 * 1024, true},
+	}
+
+	files, dir := testCreateFiles(t, testFiles)
+	defer os.RemoveAll(dir)
+
+	for _, test := range tests {
+		func() {
+			f, err := ioutil.TempFile("", "fastzip-test")
+			require.NoError(t, err)
+			defer os.Remove(f.Name())
+			defer f.Close()
+
+			a, err := NewArchiver(f, dir, WithArchiverBufferSize(test.buffersize))
+			if !test.pass {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NoError(t, a.Archive(context.Background(), files))
+			require.NoError(t, a.Close())
+
+			bytes, entries := a.Written()
+			require.EqualValues(t, 0, bytes)
+			require.EqualValues(t, 3, entries)
+
+			testExtract(t, f.Name(), testFiles)
+		}()
+	}
+}
+
 func TestArchiveChroot(t *testing.T) {
 	dir, err := ioutil.TempDir("", "fastzip-test")
 	require.NoError(t, err)
