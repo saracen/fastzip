@@ -1,6 +1,7 @@
 package fastzip
 
 import (
+	"bufio"
 	"io"
 	"sync"
 
@@ -19,18 +20,20 @@ type flater interface {
 func newFlateReaderPool(newReaderFn func(w io.Reader) io.ReadCloser) *sync.Pool {
 	pool := &sync.Pool{}
 	pool.New = func() interface{} {
-		return &flateReader{pool, newReaderFn(nil)}
+		return &flateReader{pool, bufio.NewReaderSize(nil, 32*1024), newReaderFn(nil)}
 	}
 	return pool
 }
 
 type flateReader struct {
 	pool *sync.Pool
+	buf  *bufio.Reader
 	io.ReadCloser
 }
 
 func (fr *flateReader) Reset(r io.Reader) {
-	fr.ReadCloser.(flate.Resetter).Reset(r, nil)
+	fr.buf.Reset(r)
+	fr.ReadCloser.(flate.Resetter).Reset(fr.buf, nil)
 }
 
 func (fr *flateReader) Close() error {
