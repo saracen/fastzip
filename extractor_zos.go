@@ -8,14 +8,10 @@ import (
 
 func lchmod(name string, mode os.FileMode) error {
     if mode&os.ModeSymlink != 0 {
-        // it is a symlink, do not follow
         return nil
     }
-    err := os.Chmod(name, mode)
-    if err != nil {
-        return &os.PathError{Op: "lchmod", Path: name, Err: err}
-    }
-    return nil
+
+    return os.Chmod(name, mode)
 }
 
 func lchtimes(name string, mode os.FileMode, atime, mtime time.Time) error {
