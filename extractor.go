@@ -34,13 +34,15 @@ var defaultDecompressor = FlateDecompressor()
 //
 // Access permissions, ownership (unix) and modification times are preserved.
 type Extractor struct {
+	// This 2 fields are accessed via atomic operations
+	// They are at the start of the struct so they are properly 8 byte aligned
+	written, entries int64
+
 	zr      *zip.Reader
 	closer  io.Closer
 	m       sync.Mutex
 	options extractorOptions
 	chroot  string
-
-	written, entries int64
 }
 
 // NewExtractor opens a zip file and returns a new extractor.
