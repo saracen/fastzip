@@ -245,7 +245,7 @@ func (a *Archiver) createFile(ctx context.Context, path string, fi os.FileInfo, 
 }
 
 // compressFile pre-compresses the file first to a file from the filepool,
-// making use of zip.CreateHeaderRaw. This allows for concurrent files to be
+// making use of zip.CreateRaw. This allows for concurrent files to be
 // compressed and then added to the zip file when ready.
 // If no filepool file is available (when using a concurrency of 1) or the
 // compressed file is larger than the uncompressed version, the file is moved
@@ -285,7 +285,7 @@ func (a *Archiver) compressFile(ctx context.Context, f *os.File, fi os.FileInfo,
 	a.m.Lock()
 	defer a.m.Unlock()
 
-	w, err := a.createHeaderRaw(fi, hdr)
+	w, err := a.createRaw(fi, hdr)
 	if err != nil {
 		return err
 	}

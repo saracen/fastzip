@@ -101,6 +101,7 @@ func TestArchive(t *testing.T) {
 		"bar/compressible":    {mode: 0666, contents: "11111111111111111111111111111111111111111111111111"},
 		"bar/uncompressible":  {mode: 0666, contents: "A3#bez&OqCusPr)d&D]Vot9Eo0z^5O*VZm3:sO3HptL.H-4cOv"},
 		"empty_dir":           {mode: os.ModeDir | 0777},
+		"large_file":          {mode: 0666, contents: strings.Repeat("abcdefzmkdldjsdfkjsdfsdfiqwpsdfa", 65536)},
 	}
 
 	tests := map[string][]ArchiverOption{
