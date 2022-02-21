@@ -35,14 +35,16 @@ var defaultCompressor = FlateCompressor(-1)
 //
 // Access permissions, ownership (unix) and modification times are preserved.
 type Archiver struct {
+	// This 2 fields are accessed via atomic operations
+	// They are at the start of the struct so they are properly 8 byte aligned
+	written, entries int64
+
 	zw      *zip.Writer
 	options archiverOptions
 	chroot  string
 	m       sync.Mutex
 
 	compressors map[uint16]zip.Compressor
-
-	written, entries int64
 }
 
 // NewArchiver returns a new Archiver.
