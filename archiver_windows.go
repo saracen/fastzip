@@ -1,3 +1,4 @@
+//go:build windows
 // +build windows
 
 package fastzip
@@ -13,6 +14,6 @@ func (a *Archiver) createHeader(fi os.FileInfo, hdr *zip.FileHeader) (io.Writer,
 	return a.zw.CreateHeader(hdr)
 }
 
-func (a *Archiver) createHeaderRaw(fi os.FileInfo, hdr *zip.FileHeader) (io.Writer, error) {
-	return a.zw.CreateHeaderRaw(hdr)
+func (a *Archiver) createRaw(fi os.FileInfo, hdr *zip.FileHeader) (io.Writer, error) {
+	return a.zw.CreateRaw(hdr)
 }
