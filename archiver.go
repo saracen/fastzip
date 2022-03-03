@@ -12,9 +12,12 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
+	"unicode/utf8"
 
 	"github.com/klauspost/compress/zip"
 	"github.com/saracen/fastzip/internal/filepool"
+	"github.com/saracen/zipextra"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -285,7 +288,7 @@ func (a *Archiver) compressFile(ctx context.Context, f *os.File, fi os.FileInfo,
 	a.m.Lock()
 	defer a.m.Unlock()
 
-	w, err := a.createRaw(fi, hdr)
+	w, err := a.createHeaderRaw(fi, hdr)
 	if err != nil {
 		return err
 	}
@@ -313,4 +316,56 @@ func (a *Archiver) compressFileSimple(ctx context.Context, f *os.File, fi os.Fil
 
 	_, err = br.WriteTo(countWriter{w, &a.written, ctx})
 	return err
+}
+
+func (a *Archiver) createHeaderRaw(fi os.FileInfo, fh *zip.FileHeader) (io.Writer, error) {
+	// When the standard Go library's version of CreateRaw was added, rather
+	// than solely focus on custom compression in "raw" mode, it also removed
+	// the convenience of setting up common zip flags and timestamp logic. This
+	// here replicates what CreateHeader() does:
+	// https://github.com/golang/go/blob/go1.17/src/archive/zip/writer.go#L271
+	const zipVersion20 = 20
+
+	utf8Valid1, utf8Require1 := detectUTF8(fh.Name)
+	utf8Valid2, utf8Require2 := detectUTF8(fh.Comment)
+	switch {
+	case fh.NonUTF8:
+		fh.Flags &^= 0x800
+	case (utf8Require1 || utf8Require2) && (utf8Valid1 && utf8Valid2):
+		fh.Flags |= 0x800
+	}
+
+	fh.CreatorVersion = fh.CreatorVersion&0xff00 | zipVersion20
+	fh.ReaderVersion = zipVersion20
+
+	if !fh.Modified.IsZero() {
+		fh.ModifiedDate, fh.ModifiedTime = timeToMsDosTime(fh.Modified)
+		fh.Extra = append(fh.Extra, zipextra.NewExtendedTimestamp(fh.Modified).Encode()...)
+	}
+
+	fh.Flags |= 0x8
+
+	return a.createRaw(fi, fh)
+}
+
+// https://github.com/golang/go/blob/go1.17.7/src/archive/zip/writer.go#L229
+func detectUTF8(s string) (valid, require bool) {
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		if r < 0x20 || r > 0x7d || r == 0x5c {
+			if !utf8.ValidRune(r) || (r == utf8.RuneError && size == 1) {
+				return false, false
+			}
+			require = true
+		}
+	}
+	return true, require
+}
+
+// https://github.com/golang/go/blob/go1.17.7/src/archive/zip/struct.go#L242
+func timeToMsDosTime(t time.Time) (fDate uint16, fTime uint16) {
+	fDate = uint16(t.Day() + int(t.Month())<<5 + (t.Year()-1980)<<9)
+	fTime = uint16(t.Second()/2 + t.Minute()<<5 + t.Hour()<<11)
+	return
 }

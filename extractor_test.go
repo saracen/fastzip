@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testExtract(t *testing.T, filename string, files map[string]testFile) {
+func testExtract(t *testing.T, filename string, files map[string]testFile) map[string]os.FileInfo {
 	dir, err := ioutil.TempDir("", "fastzip-test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -29,6 +29,7 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) {
 
 	require.NoError(t, e.Extract(context.Background()))
 
+	result := make(map[string]os.FileInfo)
 	err = filepath.Walk(dir, func(pathname string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -43,6 +44,8 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) {
 
 		rel = filepath.ToSlash(rel)
 		require.Contains(t, files, rel)
+
+		result[pathname] = fi
 
 		mode := files[rel].mode
 		assert.Equal(t, mode.Perm(), fi.Mode().Perm(), "file %v perm not equal", rel)
@@ -60,6 +63,8 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) {
 		return nil
 	})
 	require.NoError(t, err)
+
+	return result
 }
 
 func TestExtractCancelContext(t *testing.T) {
