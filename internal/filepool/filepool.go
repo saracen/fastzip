@@ -57,10 +57,7 @@ func New(dir string, poolSize int, bufferSize int) (*FilePool, error) {
 	fp.files = make([]*File, poolSize)
 	fp.limiter = make(chan int, poolSize)
 
-	switch bufferSize {
-	case -1:
-		bufferSize = 0
-	case 0:
+	if bufferSize < 0 {
 		bufferSize = defaultBufferSize
 	}
 

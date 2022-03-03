@@ -31,7 +31,7 @@ func TestFilePoolSizes(t *testing.T) {
 			require.NoError(t, err)
 			defer os.RemoveAll(dir)
 
-			fp, err := New(dir, tc.size, -1)
+			fp, err := New(dir, tc.size, 0)
 			require.Equal(t, tc.err, err)
 			if tc.err != nil {
 				return
@@ -63,7 +63,7 @@ func TestFilePoolReset(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	fp, err := New(dir, 16, -1)
+	fp, err := New(dir, 16, 0)
 	require.NoError(t, err)
 	for i := range fp.files {
 		file := fp.Get()
@@ -102,7 +102,7 @@ func TestFilePoolCloseError(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	fp, err := New(dir, 16, -1)
+	fp, err := New(dir, 16, 0)
 	require.NoError(t, err)
 
 	for _, file := range fp.files {
@@ -135,7 +135,7 @@ func TestFilePoolNoErrorOnAlreadyDeleted(t *testing.T) {
 	dir, err := ioutil.TempDir("", "fastzip-filepool")
 	require.NoError(t, err)
 
-	fp, err := New(dir, 16, -1)
+	fp, err := New(dir, 16, 0)
 	require.NoError(t, err)
 
 	for range fp.files {
