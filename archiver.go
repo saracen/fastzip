@@ -173,8 +173,8 @@ func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (e
 				err = a.createFile(ctx, path, fi, hdr, nil)
 				incOnSuccess(&a.entries, err)
 			} else {
+				f := fp.Get()
 				wg.Go(func() error {
-					f := fp.Get()
 					err := a.createFile(ctx, path, fi, hdr, f)
 					fp.Put(f)
 					incOnSuccess(&a.entries, err)
