@@ -12,11 +12,14 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/klauspost/compress/zip"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var fixedModTime = time.Date(2020, time.February, 1, 6, 0, 0, 0, time.UTC)
 
 type testFile struct {
 	mode     os.FileMode
@@ -52,6 +55,7 @@ func testCreateFiles(t *testing.T, files map[string]testFile) (map[string]os.Fil
 		}
 		require.NoError(t, err)
 		require.NoError(t, lchmod(path, tf.mode))
+		require.NoError(t, lchtimes(path, tf.mode, fixedModTime, fixedModTime))
 	}
 
 	archiveFiles := make(map[string]os.FileInfo)
@@ -117,7 +121,15 @@ func TestArchive(t *testing.T) {
 			defer os.RemoveAll(dir)
 
 			testCreateArchive(t, dir, files, func(filename, chroot string) {
-				testExtract(t, filename, testFiles)
+				for pathname, fi := range testExtract(t, filename, testFiles) {
+					if fi.IsDir() {
+						continue
+					}
+					if runtime.GOOS == "windows" && fi.Mode()&os.ModeSymlink != 0 {
+						continue
+					}
+					assert.Equal(t, fixedModTime.Unix(), fi.ModTime().Unix(), "file %v mod time not equal", pathname)
+				}
 			}, opts...)
 		})
 	}
