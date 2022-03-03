@@ -110,7 +110,7 @@ func TestArchive(t *testing.T) {
 
 	tests := map[string][]ArchiverOption{
 		"default options":    nil,
-		"no buffer":          {WithArchiverBufferSize(-1)},
+		"no buffer":          {WithArchiverBufferSize(0)},
 		"with store":         {WithArchiverMethod(zip.Store)},
 		"with concurrency 2": {WithArchiverConcurrency(2)},
 	}
@@ -316,17 +316,20 @@ func TestArchiveWithConcurrency(t *testing.T) {
 
 func TestArchiveWithBufferSize(t *testing.T) {
 	testFiles := map[string]testFile{
-		"foo.go": {mode: 0666},
-		"bar.go": {mode: 0666},
+		"foobar.go":      {mode: 0666},
+		"compressible":   {mode: 0666, contents: "11111111111111111111111111111111111111111111111111"},
+		"uncompressible": {mode: 0666, contents: "A3#bez&OqCusPr)d&D]Vot9Eo0z^5O*VZm3:sO3HptL.H-4cOv"},
+		"empty_dir":      {mode: os.ModeDir | 0777},
+		"large_file":     {mode: 0666, contents: strings.Repeat("abcdefzmkdldjsdfkjsdfsdfiqwpsdfa", 65536)},
 	}
 
 	tests := []struct {
 		buffersize int
-		pass       bool
+		zero       bool
 	}{
 		{-100, false},
 		{-2, false},
-		{-1, true},
+		{-1, false},
 		{0, true},
 		{32 * 1024, true},
 		{64 * 1024, true},
@@ -343,18 +346,18 @@ func TestArchiveWithBufferSize(t *testing.T) {
 			defer f.Close()
 
 			a, err := NewArchiver(f, dir, WithArchiverBufferSize(test.buffersize))
-			if !test.pass {
-				require.Error(t, err)
-				return
-			}
-
 			require.NoError(t, err)
 			require.NoError(t, a.Archive(context.Background(), files))
 			require.NoError(t, a.Close())
 
-			bytes, entries := a.Written()
-			require.EqualValues(t, 0, bytes)
-			require.EqualValues(t, 3, entries)
+			if !test.zero {
+				require.Equal(t, 0, a.options.bufferSize)
+			} else {
+				require.Equal(t, test.buffersize, a.options.bufferSize)
+			}
+
+			_, entries := a.Written()
+			require.EqualValues(t, 6, entries)
 
 			testExtract(t, f.Name(), testFiles)
 		}()

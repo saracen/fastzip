@@ -6,7 +6,6 @@ import (
 
 var (
 	ErrMinConcurrency = errors.New("concurrency must be at least 1")
-	ErrMinBufferSize  = errors.New("buffer size option cannot be less than -1")
 )
 
 // ArchiverOption is an option used when creating an archiver.
@@ -45,13 +44,10 @@ func WithArchiverConcurrency(n int) ArchiverOption {
 // temporary file is written (to the stage directory) to hold the additional
 // data. The default is 2 mebibytes, so if concurrency is 16, 32 mebibytes of
 // memory will be allocated.
-//
-// If set to -1, no buffer will be used and all compressed file content will be
-// written to temporary files before being written back to the zip file.
 func WithArchiverBufferSize(n int) ArchiverOption {
 	return func(o *archiverOptions) error {
-		if n < -1 {
-			return ErrMinBufferSize
+		if n < 0 {
+			n = 0
 		}
 		o.bufferSize = n
 		return nil
