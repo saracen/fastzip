@@ -3,22 +3,19 @@ package fastzip
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/klauspost/compress/zip"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func testExtract(t *testing.T, filename string, files map[string]testFile) map[string]os.FileInfo {
-	dir, err := ioutil.TempDir("", "fastzip-test")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-
+	dir := t.TempDir()
 	e, err := NewExtractor(filename, dir)
 	require.NoError(t, err)
 	defer e.Close()
@@ -56,7 +53,7 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) map[s
 			return nil
 		}
 
-		contents, err := ioutil.ReadFile(pathname)
+		contents, err := os.ReadFile(pathname)
 		require.NoError(t, err)
 		assert.Equal(t, string(files[rel].contents), string(contents))
 
@@ -201,10 +198,7 @@ func TestExtractorFromReader(t *testing.T) {
 }
 
 func TestExtractorDetectSymlinkTraversal(t *testing.T) {
-	dir, err := ioutil.TempDir("", "")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-
+	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "vuln.zip")
 	f, err := os.Create(archivePath)
 	require.NoError(t, err)
@@ -233,43 +227,38 @@ func TestExtractorDetectSymlinkTraversal(t *testing.T) {
 	require.Error(t, e.Extract(context.Background()))
 }
 
-func benchmarkExtractOptions(b *testing.B, store, stdDeflate bool, options ...ExtractorOption) {
+func aopts(options ...ArchiverOption) []ArchiverOption {
+	return options
+}
+
+func benchmarkExtractOptions(b *testing.B, stdDeflate bool, ao []ArchiverOption, eo ...ExtractorOption) {
 	files := make(map[string]os.FileInfo)
 	filepath.Walk(*archiveDir, func(filename string, fi os.FileInfo, err error) error {
 		files[filename] = fi
 		return nil
 	})
 
-	dir, err := ioutil.TempDir("", "fastzip-benchmark-extract")
-	require.NoError(b, err)
-	defer os.RemoveAll(dir)
-
+	dir := b.TempDir()
 	archiveName := filepath.Join(dir, "fastzip-benchmark-extract.zip")
 	f, err := os.Create(archiveName)
 	require.NoError(b, err)
 	defer os.Remove(f.Name())
 
-	var a *Archiver
-	if store {
-		a, err = NewArchiver(f, *archiveDir, WithStageDirectory(dir), WithArchiverMethod(zip.Store))
-	} else {
-		a, err = NewArchiver(f, *archiveDir, WithStageDirectory(dir))
-		a.RegisterCompressor(zip.Deflate, FlateCompressor(-1))
-	}
+	ao = append(ao, WithStageDirectory(dir))
+	a, err := NewArchiver(f, *archiveDir, ao...)
 	require.NoError(b, err)
 
 	err = a.Archive(context.Background(), files)
 	require.NoError(b, err)
 	require.NoError(b, a.Close())
 	require.NoError(b, f.Close())
-
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	fi, _ := os.Stat(archiveName)
 	b.SetBytes(fi.Size())
 	for n := 0; n < b.N; n++ {
-		e, err := NewExtractor(archiveName, dir, options...)
+		e, err := NewExtractor(archiveName, dir, eo...)
 		if stdDeflate {
 			e.RegisterDecompressor(zip.Deflate, StdFlateDecompressor())
 		}
@@ -279,61 +268,81 @@ func benchmarkExtractOptions(b *testing.B, store, stdDeflate bool, options ...Ex
 }
 
 func BenchmarkExtractStore_1(b *testing.B) {
-	benchmarkExtractOptions(b, true, true, WithExtractorConcurrency(1))
+	benchmarkExtractOptions(b, true, aopts(WithArchiverMethod(zip.Store)), WithExtractorConcurrency(1))
 }
 
 func BenchmarkExtractStore_2(b *testing.B) {
-	benchmarkExtractOptions(b, true, true, WithExtractorConcurrency(2))
+	benchmarkExtractOptions(b, true, aopts(WithArchiverMethod(zip.Store)), WithExtractorConcurrency(2))
 }
 
 func BenchmarkExtractStore_4(b *testing.B) {
-	benchmarkExtractOptions(b, true, true, WithExtractorConcurrency(4))
+	benchmarkExtractOptions(b, true, aopts(WithArchiverMethod(zip.Store)), WithExtractorConcurrency(4))
 }
 
 func BenchmarkExtractStore_8(b *testing.B) {
-	benchmarkExtractOptions(b, true, true, WithExtractorConcurrency(8))
+	benchmarkExtractOptions(b, true, aopts(WithArchiverMethod(zip.Store)), WithExtractorConcurrency(8))
 }
 
 func BenchmarkExtractStore_16(b *testing.B) {
-	benchmarkExtractOptions(b, true, true, WithExtractorConcurrency(16))
+	benchmarkExtractOptions(b, true, aopts(WithArchiverMethod(zip.Store)), WithExtractorConcurrency(16))
 }
 
 func BenchmarkExtractStandardFlate_1(b *testing.B) {
-	benchmarkExtractOptions(b, false, true, WithExtractorConcurrency(1))
+	benchmarkExtractOptions(b, true, nil, WithExtractorConcurrency(1))
 }
 
 func BenchmarkExtractStandardFlate_2(b *testing.B) {
-	benchmarkExtractOptions(b, false, true, WithExtractorConcurrency(2))
+	benchmarkExtractOptions(b, true, nil, WithExtractorConcurrency(2))
 }
 
 func BenchmarkExtractStandardFlate_4(b *testing.B) {
-	benchmarkExtractOptions(b, false, true, WithExtractorConcurrency(4))
+	benchmarkExtractOptions(b, true, nil, WithExtractorConcurrency(4))
 }
 
 func BenchmarkExtractStandardFlate_8(b *testing.B) {
-	benchmarkExtractOptions(b, false, true, WithExtractorConcurrency(8))
+	benchmarkExtractOptions(b, true, nil, WithExtractorConcurrency(8))
 }
 
 func BenchmarkExtractStandardFlate_16(b *testing.B) {
-	benchmarkExtractOptions(b, false, true, WithExtractorConcurrency(16))
+	benchmarkExtractOptions(b, true, nil, WithExtractorConcurrency(16))
 }
 
 func BenchmarkExtractNonStandardFlate_1(b *testing.B) {
-	benchmarkExtractOptions(b, false, false, WithExtractorConcurrency(1))
+	benchmarkExtractOptions(b, false, nil, WithExtractorConcurrency(1))
 }
 
 func BenchmarkExtractNonStandardFlate_2(b *testing.B) {
-	benchmarkExtractOptions(b, false, false, WithExtractorConcurrency(2))
+	benchmarkExtractOptions(b, false, nil, WithExtractorConcurrency(2))
 }
 
 func BenchmarkExtractNonStandardFlate_4(b *testing.B) {
-	benchmarkExtractOptions(b, false, false, WithExtractorConcurrency(4))
+	benchmarkExtractOptions(b, false, nil, WithExtractorConcurrency(4))
 }
 
 func BenchmarkExtractNonStandardFlate_8(b *testing.B) {
-	benchmarkExtractOptions(b, false, false, WithExtractorConcurrency(8))
+	benchmarkExtractOptions(b, false, nil, WithExtractorConcurrency(8))
 }
 
 func BenchmarkExtractNonStandardFlate_16(b *testing.B) {
-	benchmarkExtractOptions(b, false, false, WithExtractorConcurrency(16))
+	benchmarkExtractOptions(b, false, nil, WithExtractorConcurrency(16))
+}
+
+func BenchmarkExtractZstd_1(b *testing.B) {
+	benchmarkExtractOptions(b, false, aopts(WithArchiverMethod(zstd.ZipMethodWinZip)), WithExtractorConcurrency(1))
+}
+
+func BenchmarkExtractZstd_2(b *testing.B) {
+	benchmarkExtractOptions(b, false, aopts(WithArchiverMethod(zstd.ZipMethodWinZip)), WithExtractorConcurrency(2))
+}
+
+func BenchmarkExtractZstd_4(b *testing.B) {
+	benchmarkExtractOptions(b, false, aopts(WithArchiverMethod(zstd.ZipMethodWinZip)), WithExtractorConcurrency(4))
+}
+
+func BenchmarkExtractZstd_8(b *testing.B) {
+	benchmarkExtractOptions(b, false, aopts(WithArchiverMethod(zstd.ZipMethodWinZip)), WithExtractorConcurrency(8))
+}
+
+func BenchmarkExtractZstd_16(b *testing.B) {
+	benchmarkExtractOptions(b, false, aopts(WithArchiverMethod(zstd.ZipMethodWinZip)), WithExtractorConcurrency(16))
 }

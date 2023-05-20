@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zip"
+	"github.com/klauspost/compress/zstd"
 	"github.com/saracen/zipextra"
 	"golang.org/x/sync/errgroup"
 )
@@ -25,7 +25,10 @@ var bufioWriterPool = sync.Pool{
 	},
 }
 
-var defaultDecompressor = FlateDecompressor()
+var (
+	defaultDecompressor     = FlateDecompressor()
+	defaultZstdDecompressor = ZstdDecompressor()
+)
 
 // Extractor is an opinionated Zip file extractor.
 //
@@ -93,6 +96,7 @@ func newExtractor(r *zip.Reader, c io.Closer, chroot string, opts []ExtractorOpt
 	}
 
 	e.RegisterDecompressor(zip.Deflate, defaultDecompressor)
+	e.RegisterDecompressor(zstd.ZipMethodWinZip, defaultZstdDecompressor)
 
 	return e, nil
 }
@@ -205,7 +209,6 @@ func (e *Extractor) Extract(ctx context.Context) (err error) {
 			if err := e.createSymlink(path, file); err != nil {
 				return err
 			}
-			continue
 		}
 
 		err = e.updateFileMetadata(path, file)
@@ -218,7 +221,7 @@ func (e *Extractor) Extract(ctx context.Context) (err error) {
 }
 
 func (e *Extractor) createDirectory(path string, file *zip.File) error {
-	err := os.Mkdir(path, file.Mode().Perm())
+	err := os.Mkdir(path, 0777)
 	if os.IsExist(err) {
 		err = nil
 	}
@@ -237,7 +240,7 @@ func (e *Extractor) createSymlink(path string, file *zip.File) error {
 	}
 	defer r.Close()
 
-	name, err := ioutil.ReadAll(r)
+	name, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}

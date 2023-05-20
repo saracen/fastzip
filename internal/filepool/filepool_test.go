@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -27,9 +27,7 @@ func TestFilePoolSizes(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("size %d", tc.size), func(t *testing.T) {
-			dir, err := ioutil.TempDir("", "fastzip-filepool")
-			require.NoError(t, err)
-			defer os.RemoveAll(dir)
+			dir := t.TempDir()
 
 			fp, err := New(dir, tc.size, 0)
 			require.Equal(t, tc.err, err)
@@ -59,9 +57,7 @@ func TestFilePoolSizes(t *testing.T) {
 }
 
 func TestFilePoolReset(t *testing.T) {
-	dir, err := ioutil.TempDir("", "fastzip-filepool")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	fp, err := New(dir, 16, 0)
 	require.NoError(t, err)
@@ -70,7 +66,7 @@ func TestFilePoolReset(t *testing.T) {
 		_, err = file.Write(bytes.Repeat([]byte("0"), i))
 		assert.NoError(t, err)
 
-		b, err := ioutil.ReadAll(file)
+		b, err := io.ReadAll(file)
 		assert.NoError(t, err)
 		assert.Len(t, b, i)
 		assert.Equal(t, uint64(i), file.Written())
@@ -85,7 +81,7 @@ func TestFilePoolReset(t *testing.T) {
 	for range fp.files {
 		file := fp.Get()
 
-		b, err := ioutil.ReadAll(file)
+		b, err := io.ReadAll(file)
 		assert.NoError(t, err)
 		assert.Len(t, b, 0)
 		assert.Equal(t, uint64(0), file.Written())
@@ -98,9 +94,7 @@ func TestFilePoolReset(t *testing.T) {
 }
 
 func TestFilePoolCloseError(t *testing.T) {
-	dir, err := ioutil.TempDir("", "fastzip-filepool")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	fp, err := New(dir, 16, 0)
 	require.NoError(t, err)
@@ -132,9 +126,7 @@ func TestFilePoolNoErrorOnAlreadyDeleted(t *testing.T) {
 		t.Skip("Skipping test on windows (cannot delete in-use file)")
 	}
 
-	dir, err := ioutil.TempDir("", "fastzip-filepool")
-	require.NoError(t, err)
-
+	dir := t.TempDir()
 	fp, err := New(dir, 16, 0)
 	require.NoError(t, err)
 
@@ -152,9 +144,7 @@ func TestFilePoolNoErrorOnAlreadyDeleted(t *testing.T) {
 }
 
 func TestFilePoolFileBuffer(t *testing.T) {
-	dir, err := ioutil.TempDir("", "fastzip-filepool")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	tests := map[string]struct {
 		data       []byte
