@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -241,7 +240,7 @@ func (e *Extractor) createSymlink(path string, file *zip.File) error {
 	}
 	defer r.Close()
 
-	name, err := ioutil.ReadAll(r)
+	name, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}

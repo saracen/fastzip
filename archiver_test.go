@@ -28,8 +28,7 @@ type testFile struct {
 }
 
 func testCreateFiles(t *testing.T, files map[string]testFile) (map[string]os.FileInfo, string) {
-	dir, err := ioutil.TempDir("", "fastzip-test")
-	require.NoError(t, err)
+	dir := t.TempDir()
 
 	filenames := make([]string, 0, len(files))
 	for path := range files {
@@ -37,6 +36,7 @@ func testCreateFiles(t *testing.T, files map[string]testFile) (map[string]os.Fil
 	}
 	sort.Strings(filenames)
 
+	var err error
 	for _, path := range filenames {
 		tf := files[path]
 		path = filepath.Join(dir, path)
@@ -52,7 +52,7 @@ func testCreateFiles(t *testing.T, files map[string]testFile) (map[string]os.Fil
 			err = os.Symlink(tf.contents, path)
 
 		default:
-			err = ioutil.WriteFile(path, []byte(tf.contents), tf.mode)
+			err = os.WriteFile(path, []byte(tf.contents), tf.mode)
 		}
 		require.NoError(t, err)
 		require.NoError(t, lchmod(path, tf.mode))
@@ -245,10 +245,7 @@ func TestArchiveWithStageDirectory(t *testing.T) {
 	files, chroot := testCreateFiles(t, testFiles)
 	defer os.RemoveAll(chroot)
 
-	dir, err := ioutil.TempDir("", "fastzip-benchmark-stage")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-
+	dir := t.TempDir()
 	f, err := ioutil.TempFile("", "fastzip-test")
 	require.NoError(t, err)
 	defer os.Remove(f.Name())
@@ -263,7 +260,7 @@ func TestArchiveWithStageDirectory(t *testing.T) {
 	require.EqualValues(t, 0, bytes)
 	require.EqualValues(t, 3, entries)
 
-	stageFiles, err := ioutil.ReadDir(dir)
+	stageFiles, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	require.Zero(t, len(stageFiles))
 
@@ -366,10 +363,7 @@ func TestArchiveWithBufferSize(t *testing.T) {
 }
 
 func TestArchiveChroot(t *testing.T) {
-	dir, err := ioutil.TempDir("", "fastzip-test")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-
+	dir := t.TempDir()
 	f, err := os.Create(filepath.Join(dir, "archive.zip"))
 	require.NoError(t, err)
 	defer f.Close()
@@ -451,9 +445,7 @@ func benchmarkArchiveOptions(b *testing.B, stdDeflate bool, options ...ArchiverO
 		return nil
 	})
 
-	dir, err := ioutil.TempDir("", "fastzip-benchmark-archive")
-	require.NoError(b, err)
-	defer os.RemoveAll(dir)
+	dir := b.TempDir()
 
 	options = append(options, WithStageDirectory(dir))
 

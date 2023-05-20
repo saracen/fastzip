@@ -3,7 +3,6 @@ package fastzip
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,10 +15,7 @@ import (
 )
 
 func testExtract(t *testing.T, filename string, files map[string]testFile) map[string]os.FileInfo {
-	dir, err := ioutil.TempDir("", "fastzip-test")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-
+	dir := t.TempDir()
 	e, err := NewExtractor(filename, dir)
 	require.NoError(t, err)
 	defer e.Close()
@@ -57,7 +53,7 @@ func testExtract(t *testing.T, filename string, files map[string]testFile) map[s
 			return nil
 		}
 
-		contents, err := ioutil.ReadFile(pathname)
+		contents, err := os.ReadFile(pathname)
 		require.NoError(t, err)
 		assert.Equal(t, string(files[rel].contents), string(contents))
 
@@ -202,10 +198,7 @@ func TestExtractorFromReader(t *testing.T) {
 }
 
 func TestExtractorDetectSymlinkTraversal(t *testing.T) {
-	dir, err := ioutil.TempDir("", "")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-
+	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "vuln.zip")
 	f, err := os.Create(archivePath)
 	require.NoError(t, err)
@@ -245,10 +238,7 @@ func benchmarkExtractOptions(b *testing.B, stdDeflate bool, ao []ArchiverOption,
 		return nil
 	})
 
-	dir, err := ioutil.TempDir("", "fastzip-benchmark-extract")
-	require.NoError(b, err)
-	defer os.RemoveAll(dir)
-
+	dir := b.TempDir()
 	archiveName := filepath.Join(dir, "fastzip-benchmark-extract.zip")
 	f, err := os.Create(archiveName)
 	require.NoError(b, err)
