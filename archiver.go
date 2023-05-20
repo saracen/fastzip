@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/klauspost/compress/zip"
+	"github.com/klauspost/compress/zstd"
 	"github.com/saracen/fastzip/internal/filepool"
 	"github.com/saracen/zipextra"
 	"golang.org/x/sync/errgroup"
@@ -29,7 +30,10 @@ var bufioReaderPool = sync.Pool{
 	},
 }
 
-var defaultCompressor = FlateCompressor(-1)
+var (
+	defaultCompressor     = FlateCompressor(-1)
+	defaultZstdCompressor = ZstdCompressor(int(zstd.SpeedDefault))
+)
 
 // Archiver is an opinionated Zip archiver.
 //
@@ -78,6 +82,7 @@ func NewArchiver(w io.Writer, chroot string, opts ...ArchiverOption) (*Archiver,
 
 	// register flate compressor
 	a.RegisterCompressor(zip.Deflate, defaultCompressor)
+	a.RegisterCompressor(zstd.ZipMethodWinZip, defaultZstdCompressor)
 
 	return a, nil
 }

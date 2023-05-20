@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zip"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -521,5 +522,25 @@ func BenchmarkArchiveNonStandardFlate_8(b *testing.B) {
 }
 
 func BenchmarkArchiveNonStandardFlate_16(b *testing.B) {
-	benchmarkArchiveOptions(b, false, WithArchiverConcurrency(16))
+	benchmarkArchiveOptions(b, false, WithArchiverConcurrency(16), WithArchiverMethod(zstd.ZipMethodWinZip))
+}
+
+func BenchmarkArchiveZstd_1(b *testing.B) {
+	benchmarkArchiveOptions(b, true, WithArchiverConcurrency(1), WithArchiverMethod(zstd.ZipMethodWinZip))
+}
+
+func BenchmarkArchiveZstd_2(b *testing.B) {
+	benchmarkArchiveOptions(b, true, WithArchiverConcurrency(2), WithArchiverMethod(zstd.ZipMethodWinZip))
+}
+
+func BenchmarkArchiveZstd_4(b *testing.B) {
+	benchmarkArchiveOptions(b, true, WithArchiverConcurrency(4), WithArchiverMethod(zstd.ZipMethodWinZip))
+}
+
+func BenchmarkArchiveZstd_8(b *testing.B) {
+	benchmarkArchiveOptions(b, true, WithArchiverConcurrency(8), WithArchiverMethod(zstd.ZipMethodWinZip))
+}
+
+func BenchmarkArchiveZstd_16(b *testing.B) {
+	benchmarkArchiveOptions(b, true, WithArchiverConcurrency(16), WithArchiverMethod(zstd.ZipMethodWinZip))
 }
