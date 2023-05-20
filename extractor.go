@@ -209,6 +209,7 @@ func (e *Extractor) Extract(ctx context.Context) (err error) {
 			if err := e.createSymlink(path, file); err != nil {
 				return err
 			}
+			continue
 		}
 
 		err = e.updateFileMetadata(path, file)
