@@ -67,7 +67,7 @@ func NewArchiver(w io.Writer, chroot string, opts ...ArchiverOption) (*Archiver,
 	}
 
 	a.options.method = zip.Deflate
-	a.options.concurrency = runtime.NumCPU()
+	a.options.concurrency = runtime.GOMAXPROCS(0)
 	a.options.stageDir = chroot
 	a.options.bufferSize = -1
 	for _, o := range opts {
