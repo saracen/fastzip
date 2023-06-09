@@ -87,7 +87,7 @@ func newExtractor(r *zip.Reader, c io.Closer, chroot string, opts []ExtractorOpt
 		closer: c,
 	}
 
-	e.options.concurrency = runtime.NumCPU()
+	e.options.concurrency = runtime.GOMAXPROCS(0)
 	for _, o := range opts {
 		err := o(&e.options)
 		if err != nil {

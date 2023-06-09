@@ -9,7 +9,7 @@ type extractorOptions struct {
 }
 
 // WithExtractorConcurrency will set the maximum number of files being
-// extracted concurrently. The default is GOMAXPROCS.
+// extracted concurrently. The default is set to GOMAXPROCS.
 func WithExtractorConcurrency(n int) ExtractorOption {
 	return func(o *extractorOptions) error {
 		if n <= 0 {

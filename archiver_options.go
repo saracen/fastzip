@@ -28,7 +28,7 @@ func WithArchiverMethod(method uint16) ArchiverOption {
 }
 
 // WithArchiverConcurrency will set the maximum number of files to be
-// compressed concurrently. The default is set to runtime.NumCPU().
+// compressed concurrently. The default is set to GOMAXPROCS.
 func WithArchiverConcurrency(n int) ArchiverOption {
 	return func(o *archiverOptions) error {
 		if n <= 0 {
