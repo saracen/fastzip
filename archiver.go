@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 	"unicode/utf8"
 
 	"github.com/klauspost/compress/zip"
@@ -206,13 +205,6 @@ func fileInfoHeader(name string, fi os.FileInfo, hdr *zip.FileHeader) {
 	if hdr.Mode().IsDir() {
 		hdr.Name += "/"
 	}
-
-	const uint32max = (1 << 32) - 1
-	if hdr.UncompressedSize64 > uint32max {
-		hdr.UncompressedSize = uint32max
-	} else {
-		hdr.UncompressedSize = uint32(hdr.UncompressedSize64)
-	}
 }
 
 func (a *Archiver) createDirectory(fi os.FileInfo, hdr *zip.FileHeader) error {
@@ -345,7 +337,6 @@ func (a *Archiver) createHeaderRaw(fi os.FileInfo, fh *zip.FileHeader) (io.Write
 	fh.ReaderVersion = zipVersion20
 
 	if !fh.Modified.IsZero() {
-		fh.ModifiedDate, fh.ModifiedTime = timeToMsDosTime(fh.Modified)
 		fh.Extra = append(fh.Extra, zipextra.NewExtendedTimestamp(fh.Modified).Encode()...)
 	}
 
@@ -367,11 +358,4 @@ func detectUTF8(s string) (valid, require bool) {
 		}
 	}
 	return true, require
-}
-
-// https://github.com/golang/go/blob/go1.17.7/src/archive/zip/struct.go#L242
-func timeToMsDosTime(t time.Time) (fDate uint16, fTime uint16) {
-	fDate = uint16(t.Day() + int(t.Month())<<5 + (t.Year()-1980)<<9)
-	fTime = uint16(t.Second()/2 + t.Minute()<<5 + t.Hour()<<11)
-	return
 }
