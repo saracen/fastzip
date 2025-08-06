@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/klauspost/compress/zip"
 	"github.com/klauspost/compress/zstd"
@@ -265,6 +266,101 @@ func benchmarkExtractOptions(b *testing.B, stdDeflate bool, ao []ArchiverOption,
 		require.NoError(b, err)
 		require.NoError(b, e.Extract(context.Background()))
 	}
+}
+
+func TestExtractSymlinkDirectoryTimestamps(t *testing.T) {
+	// Create a specific past time for testing (different from fixedModTime used by testCreateFiles)
+	pastTime := time.Date(2019, 3, 15, 14, 30, 0, 0, time.UTC)
+
+	testFiles := map[string]testFile{
+		"target_file":          {mode: 0644, contents: "target content"},
+		"parent_dir":           {mode: 0755 | os.ModeDir},
+		"parent_dir/symlink":   {mode: 0777 | os.ModeSymlink, contents: "../target_file"},
+		"another_dir":          {mode: 0755 | os.ModeDir},
+		"another_dir/file.txt": {mode: 0644, contents: "regular file"},
+	}
+
+	// Create files using the existing test helper
+	files, dir := testCreateFiles(t, testFiles)
+	defer os.RemoveAll(dir)
+
+	// Override timestamps on directories to our specific past time
+	// (testCreateFiles sets all timestamps to fixedModTime = 2020-02-01)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, "parent_dir"), pastTime, pastTime))
+	require.NoError(t, os.Chtimes(filepath.Join(dir, "another_dir"), pastTime, pastTime))
+
+	// Update the FileInfo in the map to reflect the new timestamps
+	parentDirPath := filepath.Join(dir, "parent_dir")
+	anotherDirPath := filepath.Join(dir, "another_dir")
+
+	parentDirInfo, err := os.Lstat(parentDirPath)
+	require.NoError(t, err)
+	anotherDirInfo, err := os.Lstat(anotherDirPath)
+	require.NoError(t, err)
+
+	// Update the FileInfo entries using the exact absolute paths
+	files[parentDirPath] = parentDirInfo
+	files[anotherDirPath] = anotherDirInfo
+
+	testCreateArchive(t, dir, files, func(filename, chroot string) {
+		// Extract to a new directory
+		extractDir := t.TempDir()
+		e, err := NewExtractor(filename, extractDir)
+		require.NoError(t, err)
+		defer e.Close()
+
+		// Wait a bit to ensure current time is different from pastTime
+		time.Sleep(50 * time.Millisecond)
+		currentTime := time.Now()
+
+		require.NoError(t, e.Extract(context.Background()))
+
+		// Check that directory containing symlink preserved its timestamp
+		parentDirPath := filepath.Join(extractDir, "parent_dir")
+		parentDirInfo, err := os.Lstat(parentDirPath)
+		require.NoError(t, err)
+
+		// The directory timestamp should match the original archived time,
+		// not the current extraction time
+		actualTime := parentDirInfo.ModTime().UTC().Truncate(time.Second)
+		expectedTime := pastTime.Truncate(time.Second)
+		extractTime := currentTime.UTC().Truncate(time.Second)
+
+		assert.Equal(t, expectedTime, actualTime,
+			"Directory containing symlink should preserve original timestamp (%v), not extraction time (%v)",
+			expectedTime, extractTime)
+
+		// Also check that regular directory (without symlink) preserves timestamp
+		anotherDirPath := filepath.Join(extractDir, "another_dir")
+		anotherDirInfo, err := os.Lstat(anotherDirPath)
+		require.NoError(t, err)
+
+		actualTime2 := anotherDirInfo.ModTime().UTC().Truncate(time.Second)
+		assert.Equal(t, expectedTime, actualTime2,
+			"Regular directory should also preserve original timestamp")
+
+		// Verify symlink itself exists and points to correct target
+		symlinkPath := filepath.Join(extractDir, "parent_dir", "symlink")
+		symlinkInfo, err := os.Lstat(symlinkPath)
+		require.NoError(t, err)
+
+		// Verify it's actually a symlink
+		assert.True(t, symlinkInfo.Mode()&os.ModeSymlink != 0,
+			"Should be a symlink")
+
+		// Verify symlink points to correct target
+		target, err := os.Readlink(symlinkPath)
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join("..", "target_file"), target,
+			"Symlink should point to correct target")
+
+		// The key assertion: ensure directories containing symlinks
+		// don't have their timestamps updated during symlink creation
+		timeDifference := actualTime.Sub(extractTime).Abs()
+		assert.Greater(t, timeDifference, time.Duration(30*time.Second),
+			"Directory timestamp should be significantly different from extraction time, "+
+				"indicating it was preserved from the archive rather than updated during extraction")
+	})
 }
 
 func BenchmarkExtractStore_1(b *testing.B) {
