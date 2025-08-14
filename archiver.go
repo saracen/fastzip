@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
@@ -228,12 +229,19 @@ func (a *Archiver) createSymlink(path string, fi os.FileInfo, hdr *zip.FileHeade
 	a.m.Lock()
 	defer a.m.Unlock()
 
-	w, err := a.createHeader(fi, hdr)
+	link, err := os.Readlink(path)
 	if err != nil {
 		return err
 	}
 
-	link, err := os.Readlink(path)
+	// Don't use a data descriptor to shave a few bytes and to make sure that the symlink can be stream-unzipped
+	hdr.Flags &= ^uint16(0x8)
+	hdr.Method = zip.Store
+	hdr.CompressedSize64 = uint64(len(link))
+	hdr.UncompressedSize64 = hdr.CompressedSize64
+	hdr.CRC32 = crc32.ChecksumIEEE([]byte(link))
+
+	w, err := a.createHeaderRaw(fi, hdr)
 	if err != nil {
 		return err
 	}
@@ -282,6 +290,7 @@ func (a *Archiver) compressFile(ctx context.Context, f *os.File, fi os.FileInfo,
 		return err
 	}
 
+	hdr.Flags |= 0x8
 	hdr.CompressedSize64 = tmp.Written()
 	// if compressed file is larger, use the uncompressed version.
 	if hdr.CompressedSize64 > hdr.UncompressedSize64 {
@@ -348,8 +357,6 @@ func (a *Archiver) createHeaderRaw(fi os.FileInfo, fh *zip.FileHeader) (io.Write
 		fh.ModifiedDate, fh.ModifiedTime = timeToMsDosTime(fh.Modified)
 		fh.Extra = append(fh.Extra, zipextra.NewExtendedTimestamp(fh.Modified).Encode()...)
 	}
-
-	fh.Flags |= 0x8
 
 	return a.createRaw(fi, fh)
 }
