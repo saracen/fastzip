@@ -37,10 +37,12 @@ defer a.Close()
 
 // Walk directory, adding the files we want to add
 files := make(map[string]os.FileInfo)
-err = filepath.Walk("~/fastzip-archiving", func(pathname string, info os.FileInfo, err error) error {
+if err = filepath.Walk("~/fastzip-archiving", func(pathname string, info os.FileInfo, err error) error {
 	files[pathname] = info
 	return nil
-})
+}); err != nil {
+  panic(err)
+}
 
 // Archive
 if err = a.Archive(context.Background(), files); err != nil {
