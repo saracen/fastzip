@@ -5,11 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +33,7 @@ func testCreateFiles(t *testing.T, files map[string]testFile) (map[string]os.Fil
 	for path := range files {
 		filenames = append(filenames, path)
 	}
-	sort.Strings(filenames)
+	slices.Sort(filenames)
 
 	var err error
 	for _, path := range filenames {
@@ -70,7 +69,7 @@ func testCreateFiles(t *testing.T, files map[string]testFile) (map[string]os.Fil
 }
 
 func testCreateArchive(t *testing.T, dir string, files map[string]os.FileInfo, fn func(filename, chroot string), opts ...ArchiverOption) {
-	f, err := ioutil.TempFile("", "fastzip-test")
+	f, err := os.CreateTemp("", "fastzip-test")
 	require.NoError(t, err)
 	defer os.Remove(f.Name())
 	defer f.Close()
@@ -146,7 +145,7 @@ func TestArchiveCancelContext(t *testing.T) {
 	files, dir := testCreateFiles(t, testFiles)
 	defer os.RemoveAll(dir)
 
-	f, err := ioutil.TempFile("", "fastzip-test")
+	f, err := os.CreateTemp("", "fastzip-test")
 	require.NoError(t, err)
 	defer os.Remove(f.Name())
 	defer f.Close()
@@ -192,7 +191,7 @@ func TestArchiveWithCompressor(t *testing.T) {
 	files, dir := testCreateFiles(t, testFiles)
 	defer os.RemoveAll(dir)
 
-	f, err := ioutil.TempFile("", "fastzip-test")
+	f, err := os.CreateTemp("", "fastzip-test")
 	require.NoError(t, err)
 	defer os.Remove(f.Name())
 	defer f.Close()
@@ -219,7 +218,7 @@ func TestArchiveWithMethod(t *testing.T) {
 	files, dir := testCreateFiles(t, testFiles)
 	defer os.RemoveAll(dir)
 
-	f, err := ioutil.TempFile("", "fastzip-test")
+	f, err := os.CreateTemp("", "fastzip-test")
 	require.NoError(t, err)
 	defer os.Remove(f.Name())
 	defer f.Close()
@@ -246,7 +245,7 @@ func TestArchiveWithStageDirectory(t *testing.T) {
 	defer os.RemoveAll(chroot)
 
 	dir := t.TempDir()
-	f, err := ioutil.TempFile("", "fastzip-test")
+	f, err := os.CreateTemp("", "fastzip-test")
 	require.NoError(t, err)
 	defer os.Remove(f.Name())
 	defer f.Close()
@@ -288,7 +287,7 @@ func TestArchiveWithConcurrency(t *testing.T) {
 
 	for _, test := range concurrencyTests {
 		func() {
-			f, err := ioutil.TempFile("", "fastzip-test")
+			f, err := os.CreateTemp("", "fastzip-test")
 			require.NoError(t, err)
 			defer os.Remove(f.Name())
 			defer f.Close()
@@ -338,7 +337,7 @@ func TestArchiveWithBufferSize(t *testing.T) {
 
 	for _, test := range tests {
 		func() {
-			f, err := ioutil.TempFile("", "fastzip-test")
+			f, err := os.CreateTemp("", "fastzip-test")
 			require.NoError(t, err)
 			defer os.Remove(f.Name())
 			defer f.Close()
@@ -415,7 +414,7 @@ func TestArchiveWithOffset(t *testing.T) {
 	files, dir := testCreateFiles(t, testFiles)
 	defer os.RemoveAll(dir)
 
-	f, err := ioutil.TempFile("", "fastzip-test")
+	f, err := os.CreateTemp("", "fastzip-test")
 	require.NoError(t, err)
 	defer os.Remove(f.Name())
 	defer f.Close()
