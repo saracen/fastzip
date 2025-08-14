@@ -193,10 +193,9 @@ func (e *Extractor) Extract(ctx context.Context) (err error) {
 		return err
 	}
 
-	// handle deferred symlink creation and update directory metadata
-	// (otherwise modification dates are incorrect)
+	// Create all symlinks. This will update parent directory mtimes to current time.
 	for _, file := range e.zr.File {
-		if file.Mode()&os.ModeSymlink == 0 && !file.Mode().IsDir() {
+		if file.Mode()&os.ModeSymlink == 0 {
 			continue
 		}
 
@@ -205,11 +204,23 @@ func (e *Extractor) Extract(ctx context.Context) (err error) {
 			return err
 		}
 
-		if file.Mode()&os.ModeSymlink != 0 {
-			if err := e.createSymlink(path, file); err != nil {
-				return err
-			}
+		// createSymlink() handles the symlink's own timestamp preservation
+		// but will update the parent directory's mtime to current time.
+		if err := e.createSymlink(path, file); err != nil {
+			return err
+		}
+	}
+
+	// Update ALL directory metadata after symlinks are created.
+	// This ensures all directory timestamps and permissions are correctly preserved.
+	for _, file := range e.zr.File {
+		if !file.Mode().IsDir() {
 			continue
+		}
+
+		path, err := filepath.Abs(filepath.Join(e.chroot, file.Name))
+		if err != nil {
+			return err
 		}
 
 		err = e.updateFileMetadata(path, file)
