@@ -342,13 +342,17 @@ func (a *Archiver) compressFile(ctx context.Context, order *writeSerializer, idx
 	defer bufioReaderPool.Put(br)
 	br.Reset(f)
 
-	_, err = io.Copy(io.MultiWriter(fw, tmp.Hasher()), br)
+	n, err := io.Copy(io.MultiWriter(fw, tmp.Hasher()), br)
 	dclose(fw, &err)
 	if err != nil {
 		return err
 	}
 
 	hdr.Flags |= 0x8
+	// Use the size actually read rather than the stat-time size: the file may
+	// have changed since enumeration, and CreateRaw writes these sizes into
+	// the headers as given, so a stale size would make the entry unreadable.
+	hdr.UncompressedSize64 = uint64(n)
 	hdr.CompressedSize64 = tmp.Written()
 	// if compressed file is larger, use the uncompressed version.
 	if hdr.CompressedSize64 > hdr.UncompressedSize64 {

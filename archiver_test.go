@@ -303,6 +303,8 @@ func TestArchiveFileGrownAfterStat(t *testing.T) {
 	for name, opts := range map[string][]ArchiverOption{
 		"store":              {WithArchiverConcurrency(4), WithArchiverMethod(zip.Store)},
 		"store stable order": {WithArchiverConcurrency(4), WithArchiverMethod(zip.Store), WithStableFileOrder()},
+		"deflate":            {WithArchiverConcurrency(4)},
+		"deflate stable":     {WithArchiverConcurrency(4), WithStableFileOrder()},
 	} {
 		t.Run(name, func(t *testing.T) {
 			testFiles := map[string]testFile{
