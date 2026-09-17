@@ -45,6 +45,11 @@ func WithArchiverConcurrency(n int) ArchiverOption {
 // temporary file is written (to the stage directory) to hold the additional
 // data. The default is 2 mebibytes, so if concurrency is 16, 32 mebibytes of
 // memory will be allocated.
+//
+// With WithStableFileOrder, the same amount again bounds the entry data held
+// in memory while waiting to be written in order, so peak memory can be up to
+// double. A buffer size of 0 disables that in-memory queueing, at a cost in
+// throughput; see WithStableFileOrder.
 func WithArchiverBufferSize(n int) ArchiverOption {
 	return func(o *archiverOptions) error {
 		if n < 0 {
@@ -74,17 +79,25 @@ func WithArchiverOffset(n int64) ArchiverOption {
 	}
 }
 
-// WithStableFileOrder makes the archive output deterministic. Files are still
-// compressed concurrently, but their entries are written to the archive in the
+// WithStableFileOrder makes the archive output deterministic. Entries are
+// still compressed concurrently, but they are written to the archive in the
 // order they were enumerated (sorted by name) rather than in the order their
-// compression happens to finish. The same set of input files then always
-// produces the same archive bytes, which is useful when the archive checksum is
-// compared across runs (for example, to detect that a retried upload carries an
-// identical archive).
+// compression happens to finish. Given the same options, registered
+// compressors and an unchanged tree (contents, names, modes, ownership and
+// modification times), repeated runs then produce identical bytes, which is
+// useful when the archive checksum is compared across runs (for example, to
+// detect that a retried upload carries an identical archive). Output at a
+// concurrency of 1 is not byte-identical to concurrent output, so runs to be
+// compared must use the same concurrency.
 //
-// This can slightly reduce throughput when file compression times are uneven,
-// because a fast entry may have to wait for an earlier, slower one before it can
-// be flushed. It has no effect at a concurrency of 1, which is already ordered.
+// Throughput: entries behind a slow one wait for it. To keep the filepool
+// flowing, an entry that finishes before its turn is copied out of its
+// filepool slot and held in memory until written, bounded by concurrency x
+// buffer size (see WithArchiverBufferSize), so peak memory can be up to double
+// the filepool's. Over that budget, or with a buffer size of 0, the entry
+// waits holding its slot instead, which on trees of many small files can be
+// substantially slower than the default mode. It has no effect at a
+// concurrency of 1, which is already ordered.
 func WithStableFileOrder() ArchiverOption {
 	return func(o *archiverOptions) error {
 		o.stableFileOrder = true

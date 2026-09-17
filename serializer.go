@@ -1,6 +1,9 @@
 package fastzip
 
-import "sync"
+import (
+	"math"
+	"sync"
+)
 
 // writeSerializer enforces that zip entries are committed to the archive in the
 // order they were enumerated (sorted by name), regardless of the order their
@@ -8,8 +11,13 @@ import "sync"
 // deterministic: the same set of input files always produces the same bytes,
 // which lets callers rely on a stable archive checksum across repeated runs.
 //
-// It also provides the single-writer guarantee for the underlying zip.Writer,
-// so callers using it don't additionally lock Archiver.m.
+// Only the entry whose index equals next may write, and next advances only
+// once that write returns. The serializer's mutex is released while a write
+// runs, so registering, queueing and aborting never wait for a write in
+// progress; they wait only for the mutex itself, which is held briefly. It
+// orders writes but does not guard the zip.Writer: writes still take
+// Archiver.m, since Archive calls running concurrently each have their own
+// serializer.
 //
 // Entries must present a contiguous range of indices starting at 0; a missing
 // index would stall every later write.
@@ -21,6 +29,9 @@ type writeSerializer struct {
 
 	// pending holds writes registered with enqueue whose turn hasn't come yet.
 	// They run, in order, from whichever call advances next to their index.
+	// Only their payload bytes are budgeted; the map itself grows with the
+	// number of entries queued behind a slow one, the same order of memory
+	// as the headers Archive already holds for every entry.
 	pending map[int]pendingWrite
 
 	// pendingBytes is the total size of entry data held in memory by queued
@@ -35,6 +46,11 @@ type pendingWrite struct {
 }
 
 func newWriteSerializer(maxPendingBytes int64) *writeSerializer {
+	// A reserved size must fit an int (plus one) for the copy's make, which
+	// matters on 32-bit platforms with a large budget.
+	if maxPendingBytes > math.MaxInt-1 {
+		maxPendingBytes = math.MaxInt - 1
+	}
 	s := &writeSerializer{pending: make(map[int]pendingWrite), maxPendingBytes: maxPendingBytes}
 	s.cond = sync.NewCond(&s.mu)
 	return s
@@ -131,16 +147,26 @@ func (s *writeSerializer) enqueueBytes(idx int, n int64, fn func() error) error 
 }
 
 // run executes fn as entry next, then drains consecutive pending entries.
-// The caller must hold s.mu.
+// The caller must hold s.mu with s.next equal to fn's index; run releases the
+// mutex while each write executes and holds it again on return. Exclusive
+// access to the zip is preserved without the mutex because next does not
+// advance until the write returns, and no other call can present index next.
 func (s *writeSerializer) run(fn func() error, n int64) error {
 	defer s.cond.Broadcast()
 
 	for {
+		s.mu.Unlock()
 		err := fn()
+		s.mu.Lock()
+
 		s.pendingBytes -= n
 		if err != nil {
 			s.aborted = true
 			return err
+		}
+		if s.aborted {
+			// Torn down while writing; the queue has been dropped.
+			return nil
 		}
 		s.next++
 

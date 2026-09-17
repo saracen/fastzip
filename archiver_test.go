@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -117,7 +119,7 @@ func TestArchive(t *testing.T) {
 		"with concurrency 2":  {WithArchiverConcurrency(2)},
 		"with stable order":   {WithArchiverConcurrency(4), WithStableFileOrder()},
 		"stable no buffer":    {WithArchiverConcurrency(4), WithArchiverBufferSize(0), WithStableFileOrder()},
-		"stable order store":  {WithArchiverMethod(zip.Store), WithStableFileOrder()},
+		"stable order store":  {WithArchiverConcurrency(4), WithArchiverMethod(zip.Store), WithStableFileOrder()},
 		"stable concurrency1": {WithArchiverConcurrency(1), WithStableFileOrder()},
 	}
 
@@ -176,6 +178,14 @@ func TestArchiveStableFileOrderIsDeterministic(t *testing.T) {
 		}
 	}
 	testFiles["tree"] = testFile{mode: os.ModeDir | 0777}
+	// Incompressible files larger than the small budget used below, so that
+	// with that budget they must wait for their turn holding their slot.
+	rng := rand.New(rand.NewSource(1))
+	for i := 0; i < 8; i++ {
+		b := make([]byte, 32*1024)
+		rng.Read(b)
+		testFiles[fmt.Sprintf("random%d", i)] = testFile{mode: 0666, contents: string(b)}
+	}
 
 	files, dir := testCreateFiles(t, testFiles)
 	defer os.RemoveAll(dir)
@@ -223,157 +233,242 @@ func TestArchiveStableFileOrderIsDeterministic(t *testing.T) {
 		require.Equal(t, want, archiveSum(t, opts...), "archive checksum changed on run %d", i)
 	}
 
-	// A zero buffer size leaves no memory budget for queued writes, so every
-	// file entry waits for its turn instead. The bytes must not depend on
-	// which path was taken.
-	noBuffer := append([]ArchiverOption{WithArchiverBufferSize(0)}, opts...)
-	for i := 0; i < 5; i++ {
-		require.Equal(t, want, archiveSum(t, noBuffer...), "archive checksum differs without a memory budget on run %d", i)
+	// The memory budget only decides whether a finished entry waits holding
+	// its slot or is copied out and queued. The bytes must not depend on which
+	// path was taken: a zero buffer size leaves no budget at all, and a small
+	// one lets the small files queue while the 32KB random ones must wait.
+	for name, size := range map[string]int{"no budget": 0, "small budget": 1024} {
+		withBudget := append([]ArchiverOption{WithArchiverBufferSize(size)}, opts...)
+		for i := 0; i < 5; i++ {
+			require.Equal(t, want, archiveSum(t, withBudget...), "%s: archive checksum differs on run %d", name, i)
+		}
 	}
 }
 
-func TestArchiveStableFileOrderFileGrownAfterStat(t *testing.T) {
-	// With stable ordering, a Store entry that isn't yet its turn is copied
-	// into memory using the size recorded at stat time. A file that grew since
-	// must still be archived whole.
-	testFiles := map[string]testFile{
-		"0_slow": {mode: 0666, contents: strings.Repeat("slow ", 200000)},
+func TestArchiveStableFileOrderConcurrentArchiveCalls(t *testing.T) {
+	// Archive may be called concurrently on one Archiver. Ordering state is
+	// per call, so two calls must not release or reorder each other's entries.
+	testFiles := map[string]testFile{}
+	for i := 0; i < 40; i++ {
+		testFiles[fmt.Sprintf("file%02d", i)] = testFile{mode: 0666, contents: strings.Repeat(fmt.Sprintf("%d", i), 4096)}
 	}
-	for i := 1; i < 8; i++ {
-		testFiles[fmt.Sprintf("%d_file", i)] = testFile{mode: 0666, contents: "short"}
-	}
-
 	files, dir := testCreateFiles(t, testFiles)
 	defer os.RemoveAll(dir)
 
-	grown := filepath.Join(dir, "4_file")
-	require.NoError(t, os.WriteFile(grown, []byte("short but then it grew"), 0666))
+	halves := []map[string]os.FileInfo{{}, {}}
+	i := 0
+	for name, fi := range files {
+		halves[i%2][name] = fi
+		i++
+	}
 
-	f, err := ioutil.TempFile("", "fastzip-grown")
+	f, err := ioutil.TempFile("", "fastzip-concurrent")
 	require.NoError(t, err)
 	defer os.Remove(f.Name())
 	defer f.Close()
 
-	a, err := NewArchiver(f, dir, WithArchiverConcurrency(4), WithArchiverMethod(zip.Store), WithStableFileOrder())
+	a, err := NewArchiver(f, dir, WithArchiverConcurrency(8), WithStableFileOrder())
 	require.NoError(t, err)
-	require.NoError(t, a.Archive(context.Background(), files))
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(halves))
+	for i, half := range halves {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = a.Archive(context.Background(), half)
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
 	require.NoError(t, a.Close())
 
-	b, err := os.ReadFile(f.Name())
+	_, entries := a.Written()
+	require.Equal(t, int64(len(files)), entries)
+
+	st, err := f.Stat()
 	require.NoError(t, err)
-	zr, err := zip.NewReader(f, int64(len(b)))
+	zr, err := zip.NewReader(f, st.Size())
 	require.NoError(t, err)
-	for _, zf := range zr.File {
-		if zf.Name != "4_file" {
-			continue
-		}
-		rc, err := zf.Open()
-		require.NoError(t, err)
-		got, err := io.ReadAll(rc)
-		require.NoError(t, err)
-		require.NoError(t, rc.Close())
-		require.Equal(t, "short but then it grew", string(got))
-		return
+	require.Len(t, zr.File, len(files))
+}
+
+func TestArchiveFileGrownAfterStat(t *testing.T) {
+	// A file that grew between enumeration and archiving must be archived
+	// whole, with sizes that match its data. Store entries queued in memory
+	// under stable ordering are copied using the size recorded at stat time,
+	// and raw Deflate entries write their sizes into the headers themselves.
+	for name, opts := range map[string][]ArchiverOption{
+		"store":              {WithArchiverConcurrency(4), WithArchiverMethod(zip.Store)},
+		"store stable order": {WithArchiverConcurrency(4), WithArchiverMethod(zip.Store), WithStableFileOrder()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			testFiles := map[string]testFile{
+				"0_slow": {mode: 0666, contents: strings.Repeat("slow ", 200000)},
+			}
+			for i := 1; i < 8; i++ {
+				testFiles[fmt.Sprintf("%d_file", i)] = testFile{mode: 0666, contents: strings.Repeat("short ", 20000)}
+			}
+
+			files, dir := testCreateFiles(t, testFiles)
+			defer os.RemoveAll(dir)
+
+			// Highly compressible, so the grown data still deflates to less
+			// than the stat-time size and takes the raw (pre-compressed) path
+			// rather than falling back to Store.
+			grownContents := strings.Repeat("short but then it grew ", 20000)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "4_file"), []byte(grownContents), 0666))
+
+			f, err := ioutil.TempFile("", "fastzip-grown")
+			require.NoError(t, err)
+			defer os.Remove(f.Name())
+			defer f.Close()
+
+			a, err := NewArchiver(f, dir, opts...)
+			require.NoError(t, err)
+			require.NoError(t, a.Archive(context.Background(), files))
+			require.NoError(t, a.Close())
+
+			st, err := f.Stat()
+			require.NoError(t, err)
+			zr, err := zip.NewReader(f, st.Size())
+			require.NoError(t, err)
+			for _, zf := range zr.File {
+				if zf.Name != "4_file" {
+					continue
+				}
+				require.Equal(t, uint64(len(grownContents)), zf.UncompressedSize64)
+				rc, err := zf.Open()
+				require.NoError(t, err)
+				got, err := io.ReadAll(rc)
+				require.NoError(t, err)
+				require.NoError(t, rc.Close())
+				require.Equal(t, grownContents, string(got))
+				return
+			}
+			t.Fatal("4_file not found in archive")
+		})
 	}
-	t.Fatal("4_file not found in archive")
 }
 
 func TestArchiveStableFileOrderFileErrorDoesNotDeadlock(t *testing.T) {
 	// A file that fails to open mid-archive must not strand later entries that
 	// are waiting for their write turn. The failing entry has a low index, so
-	// with stable ordering the higher-index entries block on it.
+	// with stable ordering the higher-index entries depend on it.
 	//
 	// The file count is kept at or below the concurrency, so the filepool never
 	// makes the dispatch loop block on Get. The loop finishes and reaches its
 	// final wg.Wait before the goroutines run, which is the case where the
 	// loop's own ctx cancellation check can no longer rescue a stranded turn.
-	testFiles := map[string]testFile{
-		"0_missing": {mode: 0666, contents: "gone"},
-	}
-	for i := 1; i < 8; i++ {
-		testFiles[fmt.Sprintf("%d_file", i)] = testFile{
-			mode:     0666,
-			contents: strings.Repeat("x", 4096),
-		}
-	}
+	//
+	// With a zero buffer size there is no memory budget, so the later files
+	// really block in the serializer waiting for entry 0; that is the case the
+	// goroutine-side abort exists for. With the default budget they are queued
+	// in memory instead and must be dropped, not written, when entry 0 fails.
+	for name, opts := range map[string][]ArchiverOption{
+		"waiting for turn": {WithArchiverBufferSize(0)},
+		"queued in memory": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			testFiles := map[string]testFile{
+				"0_missing": {mode: 0666, contents: "gone"},
+			}
+			for i := 1; i < 8; i++ {
+				testFiles[fmt.Sprintf("%d_file", i)] = testFile{
+					mode:     0666,
+					contents: strings.Repeat("x", 4096),
+				}
+			}
 
-	files, dir := testCreateFiles(t, testFiles)
-	defer os.RemoveAll(dir)
+			files, dir := testCreateFiles(t, testFiles)
+			defer os.RemoveAll(dir)
 
-	// Remove the lowest-sorted file from disk while leaving it in the map, so
-	// os.Open fails for it during archiving.
-	require.NoError(t, os.Remove(filepath.Join(dir, "0_missing")))
+			// Remove the lowest-sorted file from disk while leaving it in the
+			// map, so os.Open fails for it during archiving.
+			require.NoError(t, os.Remove(filepath.Join(dir, "0_missing")))
 
-	done := make(chan error, 1)
-	go func() {
-		f, err := ioutil.TempFile("", "fastzip-deadlock")
-		if err != nil {
-			done <- err
-			return
-		}
-		defer os.Remove(f.Name())
-		defer f.Close()
+			f, err := ioutil.TempFile("", "fastzip-deadlock")
+			require.NoError(t, err)
+			defer os.Remove(f.Name())
+			defer f.Close()
 
-		a, err := NewArchiver(f, dir, WithArchiverConcurrency(16), WithStableFileOrder())
-		if err != nil {
-			done <- err
-			return
-		}
-		done <- a.Archive(context.Background(), files)
-	}()
+			opts := append([]ArchiverOption{WithArchiverConcurrency(16), WithStableFileOrder()}, opts...)
+			a, err := NewArchiver(f, dir, opts...)
+			require.NoError(t, err)
 
-	select {
-	case err := <-done:
-		require.Error(t, err, "expected the missing file to fail the archive")
-	case <-time.After(30 * time.Second):
-		t.Fatal("Archive deadlocked on a file error with stable file order")
+			done := make(chan error, 1)
+			go func() { done <- a.Archive(context.Background(), files) }()
+
+			select {
+			case err := <-done:
+				require.ErrorIs(t, err, os.ErrNotExist)
+			case <-time.After(30 * time.Second):
+				t.Fatal("Archive deadlocked on a file error with stable file order")
+			}
+
+			// Only the root directory sorts ahead of the failed file, so it is
+			// the one entry written. Written must not count the later entries,
+			// which never reached the zip.
+			bytes, entries := a.Written()
+			require.Zero(t, bytes)
+			require.Equal(t, int64(1), entries)
+		})
 	}
 }
 
 func TestArchiveCancelContext(t *testing.T) {
-	twoMB := strings.Repeat("1", 2*1024*1024)
-	testFiles := map[string]testFile{}
-	for i := 0; i < 100; i++ {
-		testFiles[fmt.Sprintf("file_%d", i)] = testFile{mode: 0666, contents: twoMB}
-	}
-
-	files, dir := testCreateFiles(t, testFiles)
-	defer os.RemoveAll(dir)
-
-	f, err := ioutil.TempFile("", "fastzip-test")
-	require.NoError(t, err)
-	defer os.Remove(f.Name())
-	defer f.Close()
-
-	a, err := NewArchiver(f, dir, WithArchiverConcurrency(1))
-	a.RegisterCompressor(zip.Deflate, FlateCompressor(1))
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		defer func() { done <- struct{}{} }()
-
-		require.EqualError(t, a.Archive(ctx, files), "context canceled")
-	}()
-
-	defer func() {
-		require.NoError(t, a.Close())
-	}()
-
-	for {
-		select {
-		case <-done:
-			return
-
-		default:
-			// cancel as soon as any data is written
-			if bytes, _ := a.Written(); bytes > 0 {
-				cancel()
+	for name, opts := range map[string][]ArchiverOption{
+		"concurrency 1":              {WithArchiverConcurrency(1)},
+		"stable order concurrency 4": {WithArchiverConcurrency(4), WithStableFileOrder()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			twoMB := strings.Repeat("1", 2*1024*1024)
+			testFiles := map[string]testFile{}
+			for i := 0; i < 100; i++ {
+				testFiles[fmt.Sprintf("file_%d", i)] = testFile{mode: 0666, contents: twoMB}
 			}
-		}
+
+			files, dir := testCreateFiles(t, testFiles)
+			defer os.RemoveAll(dir)
+
+			f, err := ioutil.TempFile("", "fastzip-test")
+			require.NoError(t, err)
+			defer os.Remove(f.Name())
+			defer f.Close()
+
+			a, err := NewArchiver(f, dir, opts...)
+			require.NoError(t, err)
+			a.RegisterCompressor(zip.Deflate, FlateCompressor(1))
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			done := make(chan error, 1)
+			go func() { done <- a.Archive(ctx, files) }()
+
+			defer func() {
+				require.NoError(t, a.Close())
+			}()
+
+			for {
+				select {
+				case err := <-done:
+					require.EqualError(t, err, "context canceled")
+					return
+
+				case <-time.After(30 * time.Second):
+					t.Fatal("Archive did not return after cancellation")
+
+				default:
+					// cancel as soon as any data is written
+					if bytes, _ := a.Written(); bytes > 0 {
+						cancel()
+					}
+				}
+			}
+		})
 	}
 }
 

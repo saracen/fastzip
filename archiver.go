@@ -53,11 +53,6 @@ type Archiver struct {
 	chroot  string
 	m       sync.Mutex
 
-	// order serializes entry writes so the archive is deterministic. It is
-	// non-nil only when the stable file order option is enabled and is created
-	// per Archive call.
-	order *writeSerializer
-
 	compressors map[uint16]zip.Compressor
 }
 
@@ -141,9 +136,12 @@ func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (e
 		}
 	}()
 
-	// Ordering only matters when entries are written concurrently; at a
+	// order serializes entry writes so the archive is deterministic. It is
+	// per-call state: Archive may be called concurrently on one Archiver, so
+	// it must not live on the struct. It is nil unless stable file ordering
+	// is enabled and entries are actually written concurrently; at a
 	// concurrency of 1 the dispatch loop already writes them in order.
-	a.order = nil
+	var order *writeSerializer
 	if a.options.stableFileOrder && fp != nil {
 		// Entries that finish before their turn may be copied out of their
 		// filepool slot and held in memory until written, up to this budget.
@@ -152,12 +150,12 @@ func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (e
 		if bufferSize < 0 {
 			bufferSize = filepool.DefaultBufferSize
 		}
-		a.order = newWriteSerializer(int64(concurrency) * int64(bufferSize))
+		order = newWriteSerializer(int64(concurrency) * int64(bufferSize))
 		// Registered after the wg.Wait deferral above so it runs first (defers
 		// are LIFO): any goroutine blocked on its write turn is released before
 		// we wait on it, avoiding a hang when we return before dispatching every
 		// entry.
-		defer a.order.abort()
+		defer order.abort()
 	}
 
 	hdrs := make([]zip.FileHeader, len(names))
@@ -197,10 +195,10 @@ func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (e
 
 		switch {
 		case hdr.Mode()&os.ModeSymlink != 0:
-			err = a.createSymlink(entryIdx, path, fi, hdr)
+			err = a.createSymlink(order, entryIdx, path, fi, hdr)
 
 		case hdr.Mode().IsDir():
-			err = a.createDirectory(entryIdx, fi, hdr)
+			err = a.createDirectory(order, entryIdx, fi, hdr)
 
 		default:
 			if hdr.UncompressedSize64 > 0 {
@@ -208,20 +206,21 @@ func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (e
 			}
 
 			if fp == nil {
-				err = a.createFile(ctx, entryIdx, path, fi, hdr, nil)
-				incOnSuccess(&a.entries, err)
+				err = a.createFile(ctx, order, entryIdx, path, fi, hdr, nil)
 			} else {
 				f := fp.Get()
 				wg.Go(func() error {
-					err := a.createFile(ctx, entryIdx, path, fi, hdr, f)
+					err := a.createFile(ctx, order, entryIdx, path, fi, hdr, f)
 					fp.Put(f)
-					incOnSuccess(&a.entries, err)
-					if err != nil && a.order != nil {
+					if err != nil && order != nil {
 						// createFile can fail before it reaches its write turn
 						// (for example os.Open or a compression error), leaving
 						// the turn unconsumed. Abort so any later entry waiting on
 						// this one is released instead of blocking wg.Wait below.
-						a.order.abort()
+						// abort does not wait for a write in progress, so the
+						// error reaches the errgroup at once and its ctx
+						// cancellation stops that write at its next chunk.
+						order.abort()
 					}
 					return err
 				})
@@ -236,34 +235,27 @@ func (a *Archiver) Archive(ctx context.Context, files map[string]os.FileInfo) (e
 	return wg.Wait()
 }
 
-// writeEntry serializes a single entry's write to the zip. When stable file
-// ordering is enabled the write also waits for its turn, so entries are written
-// in enumeration order regardless of when their compression finished. In both
-// cases fn runs with exclusive access to the underlying zip.Writer.
-func (a *Archiver) writeEntry(idx int, fn func() error) error {
-	if a.order != nil {
-		return a.order.do(idx, fn)
-	}
-
+// writeEntry runs fn with exclusive access to the underlying zip.Writer. Every
+// write goes through here, including ordered ones: the serializer only decides
+// when an entry may be written, and Archive calls running concurrently on one
+// Archiver each have their own serializer.
+func (a *Archiver) writeEntry(fn func() error) error {
 	a.m.Lock()
 	defer a.m.Unlock()
 	return fn()
 }
 
-// writeEntryNoWait is writeEntry for entries that are written from the
-// dispatch loop and hold no filepool file (directories and symlinks). With
-// stable file ordering the write is queued rather than waited for, so the loop
-// keeps dispatching files instead of draining every in-flight compression each
-// time it meets a directory. The queued write runs, in order, from whichever
-// goroutine completes the entry before it; its error surfaces there.
-func (a *Archiver) writeEntryNoWait(idx int, fn func() error) error {
-	if a.order != nil {
-		return a.order.enqueue(idx, fn)
+// writeEntryNoWait writes an entry that is dispatched synchronously and holds
+// no filepool file (directories and symlinks). With stable file ordering the
+// write is queued rather than waited for, so the dispatch loop does not wait
+// for every earlier file to finish compressing each time it meets a directory.
+// The queued write runs, in order, from whichever goroutine completes the
+// entry before it; its error surfaces there.
+func (a *Archiver) writeEntryNoWait(order *writeSerializer, idx int, fn func() error) error {
+	if order != nil {
+		return order.enqueue(idx, func() error { return a.writeEntry(fn) })
 	}
-
-	a.m.Lock()
-	defer a.m.Unlock()
-	return fn()
+	return a.writeEntry(fn)
 }
 
 func fileInfoHeader(name string, fi os.FileInfo, hdr *zip.FileHeader) {
@@ -284,15 +276,15 @@ func fileInfoHeader(name string, fi os.FileInfo, hdr *zip.FileHeader) {
 	}
 }
 
-func (a *Archiver) createDirectory(idx int, fi os.FileInfo, hdr *zip.FileHeader) error {
-	return a.writeEntryNoWait(idx, func() error {
+func (a *Archiver) createDirectory(order *writeSerializer, idx int, fi os.FileInfo, hdr *zip.FileHeader) error {
+	return a.writeEntryNoWait(order, idx, func() error {
 		_, err := a.createHeader(fi, hdr)
 		incOnSuccess(&a.entries, err)
 		return err
 	})
 }
 
-func (a *Archiver) createSymlink(idx int, path string, fi os.FileInfo, hdr *zip.FileHeader) error {
+func (a *Archiver) createSymlink(order *writeSerializer, idx int, path string, fi os.FileInfo, hdr *zip.FileHeader) error {
 	link, err := os.Readlink(path)
 	if err != nil {
 		return err
@@ -305,7 +297,7 @@ func (a *Archiver) createSymlink(idx int, path string, fi os.FileInfo, hdr *zip.
 	hdr.UncompressedSize64 = hdr.CompressedSize64
 	hdr.CRC32 = crc32.ChecksumIEEE([]byte(link))
 
-	return a.writeEntryNoWait(idx, func() error {
+	return a.writeEntryNoWait(order, idx, func() error {
 		w, err := a.createHeaderRaw(fi, hdr)
 		if err != nil {
 			return err
@@ -317,14 +309,14 @@ func (a *Archiver) createSymlink(idx int, path string, fi os.FileInfo, hdr *zip.
 	})
 }
 
-func (a *Archiver) createFile(ctx context.Context, idx int, path string, fi os.FileInfo, hdr *zip.FileHeader, tmp *filepool.File) error {
+func (a *Archiver) createFile(ctx context.Context, order *writeSerializer, idx int, path string, fi os.FileInfo, hdr *zip.FileHeader, tmp *filepool.File) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	return a.compressFile(ctx, idx, f, fi, hdr, tmp)
+	return a.compressFile(ctx, order, idx, f, fi, hdr, tmp)
 }
 
 // compressFile pre-compresses the file first to a file from the filepool,
@@ -333,12 +325,12 @@ func (a *Archiver) createFile(ctx context.Context, idx int, path string, fi os.F
 // If no filepool file is available (when using a concurrency of 1) or the
 // compressed file is larger than the uncompressed version, the file is moved
 // to the zip file using the conventional zip.CreateHeader.
-func (a *Archiver) compressFile(ctx context.Context, idx int, f *os.File, fi os.FileInfo, hdr *zip.FileHeader, tmp *filepool.File) error {
+func (a *Archiver) compressFile(ctx context.Context, order *writeSerializer, idx int, f *os.File, fi os.FileInfo, hdr *zip.FileHeader, tmp *filepool.File) error {
 	comp, ok := a.compressors[hdr.Method]
 	// if we don't have the registered compressor, it most likely means Store is
 	// being used, so we revert to non-concurrent behaviour
 	if !ok || tmp == nil {
-		return a.compressFileSimple(ctx, idx, f, fi, hdr)
+		return a.compressFileSimple(ctx, order, idx, f, fi, hdr)
 	}
 
 	fw, err := comp(tmp)
@@ -362,12 +354,12 @@ func (a *Archiver) compressFile(ctx context.Context, idx int, f *os.File, fi os.
 	if hdr.CompressedSize64 > hdr.UncompressedSize64 {
 		f.Seek(0, io.SeekStart)
 		hdr.Method = zip.Store
-		return a.compressFileSimple(ctx, idx, f, fi, hdr)
+		return a.compressFileSimple(ctx, order, idx, f, fi, hdr)
 	}
 	hdr.CRC32 = tmp.Checksum()
 
 	br.Reset(tmp)
-	return a.writeFileEntry(ctx, idx, int64(hdr.CompressedSize64), br, func() (io.Writer, error) {
+	return a.writeFileEntry(ctx, order, idx, int64(hdr.CompressedSize64), br, func() (io.Writer, error) {
 		return a.createHeaderRaw(fi, hdr)
 	})
 }
@@ -375,12 +367,12 @@ func (a *Archiver) compressFile(ctx context.Context, idx int, f *os.File, fi os.
 // compressFileSimple uses the conventional zip.createHeader. This differs from
 // compressFile as it locks the zip _whilst_ compressing (if the method is not
 // Store).
-func (a *Archiver) compressFileSimple(ctx context.Context, idx int, f *os.File, fi os.FileInfo, hdr *zip.FileHeader) error {
+func (a *Archiver) compressFileSimple(ctx context.Context, order *writeSerializer, idx int, f *os.File, fi os.FileInfo, hdr *zip.FileHeader) error {
 	br := bufioReaderPool.Get().(*bufio.Reader)
 	defer bufioReaderPool.Put(br)
 	br.Reset(f)
 
-	return a.writeFileEntry(ctx, idx, int64(hdr.UncompressedSize64), br, func() (io.Writer, error) {
+	return a.writeFileEntry(ctx, order, idx, int64(hdr.UncompressedSize64), br, func() (io.Writer, error) {
 		return a.createHeader(fi, hdr)
 	})
 }
@@ -395,27 +387,32 @@ func (a *Archiver) compressFileSimple(ctx context.Context, idx int, f *os.File, 
 // small files sit behind a slow one. So if n fits the serializer's memory
 // budget, the data is copied out of src and the write queued, letting the
 // caller return its slot right away. Over budget, it waits with the slot.
-func (a *Archiver) writeFileEntry(ctx context.Context, idx int, n int64, src io.Reader, create func() (io.Writer, error)) error {
+func (a *Archiver) writeFileEntry(ctx context.Context, order *writeSerializer, idx int, n int64, src io.Reader, create func() (io.Writer, error)) error {
 	write := func(r io.Reader) error {
-		w, err := create()
-		if err != nil {
+		return a.writeEntry(func() error {
+			w, err := create()
+			if err != nil {
+				return err
+			}
+
+			_, err = io.Copy(countWriter{w, &a.written, ctx}, r)
+			incOnSuccess(&a.entries, err)
 			return err
-		}
+		})
+	}
+	// stream reads src when it runs, so it sees the reassignment below.
+	stream := func() error { return write(src) }
 
-		_, err = io.Copy(countWriter{w, &a.written, ctx}, r)
+	if order == nil {
+		return stream()
+	}
+
+	if ran, err := order.tryDo(idx, stream); ran {
 		return err
 	}
 
-	if a.order == nil {
-		return a.writeEntry(idx, func() error { return write(src) })
-	}
-
-	if ran, err := a.order.tryDo(idx, func() error { return write(src) }); ran {
-		return err
-	}
-
-	if !a.order.reserve(n) {
-		return a.order.do(idx, func() error { return write(src) })
+	if !order.reserve(n) {
+		return order.do(idx, stream)
 	}
 
 	// Read one byte past n so a source that grew since it was stat'd is
@@ -423,20 +420,20 @@ func (a *Archiver) writeFileEntry(ctx context.Context, idx int, n int64, src io.
 	buf := make([]byte, n+1)
 	m, err := io.ReadFull(src, buf)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		a.order.release(n)
+		order.release(n)
 		return err
 	}
 	if m <= int(n) {
-		return a.order.enqueueBytes(idx, n, func() error {
+		return order.enqueueBytes(idx, n, func() error {
 			return write(bytes.NewReader(buf[:m]))
 		})
 	}
 
 	// Larger than expected: write everything, including what was already
 	// read, from the source once it is our turn.
-	a.order.release(n)
+	order.release(n)
 	src = io.MultiReader(bytes.NewReader(buf), src)
-	return a.order.do(idx, func() error { return write(src) })
+	return order.do(idx, stream)
 }
 
 func (a *Archiver) createHeaderRaw(fi os.FileInfo, fh *zip.FileHeader) (io.Writer, error) {
