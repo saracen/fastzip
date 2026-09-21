@@ -10,8 +10,8 @@ jobs:
   build:
     strategy:
       matrix:
-        # earliest supported go version and latest 2 versions we support
-        go: [1.22.x, 1.24.x, 1.25.x]
+        # earliest supported go version and the recent versions we support
+        go: [1.23.x, 1.24.x, 1.25.x, 1.26.x, 1.27.x]
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:

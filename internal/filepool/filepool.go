@@ -13,7 +13,9 @@ import (
 
 var ErrPoolSizeLessThanZero = errors.New("pool size must be greater than zero")
 
-const defaultBufferSize = 2 * 1024 * 1024
+// DefaultBufferSize is the in-memory buffer size used by each pooled file when
+// a negative buffer size is requested.
+const DefaultBufferSize = 2 * 1024 * 1024
 
 type filePoolCloseError []error
 
@@ -58,7 +60,7 @@ func New(dir string, poolSize int, bufferSize int) (*FilePool, error) {
 	fp.limiter = make(chan int, poolSize)
 
 	if bufferSize < 0 {
-		bufferSize = defaultBufferSize
+		bufferSize = DefaultBufferSize
 	}
 
 	for i := range fp.files {

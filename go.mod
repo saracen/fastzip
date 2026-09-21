@@ -1,6 +1,6 @@
 module github.com/saracen/fastzip
 
-go 1.22
+go 1.23
 
 require (
 	github.com/klauspost/compress v1.18.0
