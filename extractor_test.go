@@ -2,6 +2,7 @@ package fastzip
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -151,6 +152,83 @@ func TestExtractorWithConcurrency(t *testing.T) {
 			} else {
 				assert.Error(t, err)
 			}
+		}
+	})
+}
+
+func TestNewExtractorClosesOwnedReader(t *testing.T) {
+	testCreateArchive(t, t.TempDir(), nil, func(filename, chroot string) {
+		for _, concurrency := range []int{-1, 0, 1} {
+			t.Run(fmt.Sprint(concurrency), func(t *testing.T) {
+				f, err := os.Open(filename)
+				require.NoError(t, err)
+				defer f.Close()
+				fi, err := f.Stat()
+				require.NoError(t, err)
+				zr, err := zip.NewReader(f, fi.Size())
+				require.NoError(t, err)
+
+				e, err := newExtractor(zr, f, chroot, []ExtractorOption{WithExtractorConcurrency(concurrency)})
+				if concurrency <= 0 {
+					require.Nil(t, e)
+					require.ErrorIs(t, err, ErrMinConcurrency)
+				} else {
+					require.NoError(t, err)
+					_, err = f.Stat()
+					require.NoError(t, err)
+					require.NoError(t, e.Close())
+				}
+
+				_, err = f.Read(make([]byte, 1))
+				require.ErrorIs(t, err, os.ErrClosed)
+			})
+		}
+	})
+}
+
+type extractorErrorCloser struct {
+	closed bool
+	err    error
+}
+
+func (c *extractorErrorCloser) Close() error {
+	c.closed = true
+	return c.err
+}
+
+func TestNewExtractorPreservesOptionError(t *testing.T) {
+	optionErr := errors.New("invalid extractor option")
+	c := &extractorErrorCloser{err: errors.New("close failed")}
+	e, err := newExtractor(nil, c, t.TempDir(), []ExtractorOption{
+		func(*extractorOptions) error { return optionErr },
+	})
+	require.Nil(t, e)
+	require.ErrorIs(t, err, optionErr)
+	require.True(t, c.closed)
+}
+
+func TestNewExtractorFromReaderKeepsCallerFileOpen(t *testing.T) {
+	testCreateArchive(t, t.TempDir(), nil, func(filename, chroot string) {
+		for _, concurrency := range []int{-1, 0, 1} {
+			t.Run(fmt.Sprint(concurrency), func(t *testing.T) {
+				f, err := os.Open(filename)
+				require.NoError(t, err)
+				defer f.Close()
+				fi, err := f.Stat()
+				require.NoError(t, err)
+
+				e, err := NewExtractorFromReader(f, fi.Size(), chroot, WithExtractorConcurrency(concurrency))
+				if concurrency <= 0 {
+					require.Nil(t, e)
+					require.ErrorIs(t, err, ErrMinConcurrency)
+				} else {
+					require.NoError(t, err)
+					require.NoError(t, e.Close())
+				}
+
+				_, err = f.Stat()
+				require.NoError(t, err)
+			})
 		}
 	})
 }

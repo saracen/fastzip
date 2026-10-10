@@ -75,8 +75,13 @@ func NewExtractorFromReader(r io.ReaderAt, size int64, chroot string, opts ...Ex
 	return newExtractor(zr, nil, chroot, opts)
 }
 
-func newExtractor(r *zip.Reader, c io.Closer, chroot string, opts []ExtractorOption) (*Extractor, error) {
-	var err error
+func newExtractor(r *zip.Reader, c io.Closer, chroot string, opts []ExtractorOption) (_ *Extractor, err error) {
+	defer func() {
+		if err != nil && c != nil {
+			c.Close()
+		}
+	}()
+
 	if chroot, err = filepath.Abs(chroot); err != nil {
 		return nil, err
 	}
