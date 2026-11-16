@@ -65,6 +65,26 @@ if err = e.Extract(context.Background()); err != nil {
 }
 ```
 
+#### Symbolic links
+
+The extractor never writes outside of the chroot. Every file, directory and
+symbolic link is created relative to the chroot through an `os.Root`, so an
+entry whose path passes through a symbolic link that leads outside of the
+chroot fails instead of following it, even when that link was already on disk
+before the extraction. A symbolic link found where an entry is to be extracted
+is replaced by the entry.
+
+Symbolic link entries are created as stored in the archive by default, so the
+extracted tree may contain links that point outside of the chroot. If the tree
+is later handed to tools that follow links, extract with
+`fastzip.WithExtractorSymlinkPolicy(fastzip.SymlinkPolicyContain)` to fail on
+any link whose target is absolute or resolves outside of the chroot.
+
+Two consequences of `os.Root` to be aware of: a symbolic link already on disk
+with an absolute target cannot be traversed even when it points inside the
+chroot, and on Windows a link entry whose target is absolute or outside of the
+chroot is created as a file link even when the target is a directory.
+
 ## Benchmarks
 
 Archiving and extracting a Go 1.13 GOROOT directory, 342M, 10308 files.

@@ -39,10 +39,13 @@ func testCreateFiles(t *testing.T, files map[string]testFile) (map[string]os.Fil
 	}
 	sort.Strings(filenames)
 
-	var err error
-	for _, path := range filenames {
-		tf := files[path]
-		path = filepath.Join(dir, path)
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	defer root.Close()
+
+	for _, name := range filenames {
+		tf := files[name]
+		path := filepath.Join(dir, name)
 
 		switch {
 		case tf.mode&os.ModeSymlink != 0 && tf.mode&os.ModeDir != 0:
@@ -58,8 +61,8 @@ func testCreateFiles(t *testing.T, files map[string]testFile) (map[string]os.Fil
 			err = os.WriteFile(path, []byte(tf.contents), tf.mode)
 		}
 		require.NoError(t, err)
-		require.NoError(t, lchmod(path, tf.mode))
-		require.NoError(t, lchtimes(path, tf.mode, fixedModTime, fixedModTime))
+		require.NoError(t, lchmod(root, filepath.FromSlash(name), tf.mode))
+		require.NoError(t, lchtimes(root, filepath.FromSlash(name), tf.mode, fixedModTime, fixedModTime))
 	}
 
 	archiveFiles := make(map[string]os.FileInfo)

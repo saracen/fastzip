@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -454,4 +455,368 @@ func BenchmarkExtractZstd_8(b *testing.B) {
 
 func BenchmarkExtractZstd_16(b *testing.B) {
 	benchmarkExtractOptions(b, false, aopts(WithArchiverMethod(zstd.ZipMethodWinZip)), WithExtractorConcurrency(16))
+}
+
+// testWriteZip writes a zip archive to filename, calling fn to add entries.
+func testWriteZip(t *testing.T, filename string, fn func(zw *zip.Writer)) {
+	t.Helper()
+
+	f, err := os.Create(filename)
+	require.NoError(t, err)
+	zw := zip.NewWriter(f)
+	fn(zw)
+	require.NoError(t, zw.Close())
+	require.NoError(t, f.Close())
+}
+
+func testZipEntry(t *testing.T, zw *zip.Writer, name string, mode os.FileMode, contents string) {
+	t.Helper()
+
+	hdr := &zip.FileHeader{Name: name, Modified: fixedModTime}
+	hdr.SetMode(mode)
+	w, err := zw.CreateHeader(hdr)
+	require.NoError(t, err)
+	_, err = w.Write([]byte(contents))
+	require.NoError(t, err)
+}
+
+func testZipFile(t *testing.T, zw *zip.Writer, name, contents string) {
+	t.Helper()
+	testZipEntry(t, zw, name, 0644, contents)
+}
+
+func testZipDir(t *testing.T, zw *zip.Writer, name string) {
+	t.Helper()
+	testZipEntry(t, zw, name+"/", os.ModeDir|0755, "")
+}
+
+func testZipSymlink(t *testing.T, zw *zip.Writer, name, target string) {
+	t.Helper()
+	testZipEntry(t, zw, name, os.ModeSymlink|0777, target)
+}
+
+func testExtractArchive(t *testing.T, filename, chroot string, opts ...ExtractorOption) error {
+	t.Helper()
+
+	e, err := NewExtractor(filename, chroot, opts...)
+	require.NoError(t, err)
+	defer e.Close()
+
+	return e.Extract(context.Background())
+}
+
+// testChroot returns a chroot and a sibling "outside" directory that nothing
+// should ever be written to.
+func testChroot(t *testing.T) (chroot, outside string) {
+	t.Helper()
+
+	base := t.TempDir()
+	chroot = filepath.Join(base, "chroot")
+	outside = filepath.Join(base, "outside")
+	require.NoError(t, os.Mkdir(chroot, 0755))
+	require.NoError(t, os.Mkdir(outside, 0755))
+
+	return chroot, outside
+}
+
+func TestExtractorCreatesChroot(t *testing.T) {
+	chroot := filepath.Join(t.TempDir(), "new", "nested")
+	archive := filepath.Join(t.TempDir(), "archive.zip")
+	testWriteZip(t, archive, func(zw *zip.Writer) {
+		testZipFile(t, zw, "file", "contents")
+	})
+
+	require.NoError(t, testExtractArchive(t, archive, chroot))
+	assert.FileExists(t, filepath.Join(chroot, "file"))
+}
+
+func TestExtractorRejectsEntryOutsideChroot(t *testing.T) {
+	chroot, outside := testChroot(t)
+	archive := filepath.Join(t.TempDir(), "archive.zip")
+	testWriteZip(t, archive, func(zw *zip.Writer) {
+		testZipFile(t, zw, "../outside/escaped.txt", "outside extraction root")
+	})
+
+	require.Error(t, testExtractArchive(t, archive, chroot))
+	assert.NoFileExists(t, filepath.Join(outside, "escaped.txt"))
+}
+
+// A symbolic link that already exists under the chroot, however it got there,
+// must not redirect an entry's write outside of the chroot (GHSA-8gwq-33fg-g56p).
+func TestExtractorDoesNotWriteThroughExistingSymlink(t *testing.T) {
+	tests := []struct {
+		name   string
+		link   string // path of the pre-existing link, relative to the chroot
+		target func(outside string) string
+	}{
+		{"absolute", "pivot", func(outside string) string { return outside }},
+		{"relative", "pivot", func(string) string { return filepath.Join("..", "outside") }},
+		{"nested", "real/pivot", func(string) string { return filepath.Join("..", "..", "outside") }},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			chroot, outside := testChroot(t)
+			link := filepath.Join(chroot, filepath.FromSlash(tc.link))
+			require.NoError(t, os.MkdirAll(filepath.Dir(link), 0755))
+			require.NoError(t, os.Symlink(tc.target(outside), link))
+
+			archive := filepath.Join(t.TempDir(), "archive.zip")
+			testWriteZip(t, archive, func(zw *zip.Writer) {
+				testZipFile(t, zw, tc.link+"/escaped.txt", "outside extraction root")
+			})
+
+			err := testExtractArchive(t, archive, chroot)
+			require.ErrorIs(t, err, ErrSymlinkEscapesChroot)
+			assert.Contains(t, err.Error(), link, "error should name the link")
+			assert.NoFileExists(t, filepath.Join(outside, "escaped.txt"))
+
+			// the link itself is left alone: it was not the entry being extracted
+			fi, err := os.Lstat(link)
+			require.NoError(t, err)
+			assert.NotZero(t, fi.Mode()&os.ModeSymlink)
+		})
+	}
+}
+
+// A directory entry extracted where a regular file exists replaces the file,
+// rather than leaving the file in place with the directory's metadata applied.
+func TestExtractorReplacesFileWithDirectory(t *testing.T) {
+	chroot, _ := testChroot(t)
+	require.NoError(t, os.WriteFile(filepath.Join(chroot, "d"), []byte("file"), 0600))
+
+	archive := filepath.Join(t.TempDir(), "archive.zip")
+	testWriteZip(t, archive, func(zw *zip.Writer) {
+		testZipDir(t, zw, "d")
+		testZipFile(t, zw, "d/inner.txt", "inner")
+	})
+
+	require.NoError(t, testExtractArchive(t, archive, chroot))
+
+	fi, err := os.Lstat(filepath.Join(chroot, "d"))
+	require.NoError(t, err)
+	assert.True(t, fi.IsDir())
+	assert.FileExists(t, filepath.Join(chroot, "d", "inner.txt"))
+}
+
+// A symbolic link's own modification time is set on the link, not its target.
+func TestExtractorPreservesSymlinkTimes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink times are not set on windows")
+	}
+
+	chroot, _ := testChroot(t)
+	archive := filepath.Join(t.TempDir(), "archive.zip")
+	testWriteZip(t, archive, func(zw *zip.Writer) {
+		testZipFile(t, zw, "target", "contents")
+		testZipSymlink(t, zw, "dir/link", "../target")
+	})
+
+	require.NoError(t, testExtractArchive(t, archive, chroot))
+
+	fi, err := os.Lstat(filepath.Join(chroot, "dir", "link"))
+	require.NoError(t, err)
+	assert.NotZero(t, fi.Mode()&os.ModeSymlink)
+	assert.Equal(t, fixedModTime.Unix(), fi.ModTime().Unix())
+}
+
+// A symbolic link created by extracting one archive must not redirect the
+// writes of a later archive extracted into the same chroot (GHSA-7m8w-fxx8-hp3f).
+func TestExtractorDoesNotWriteThroughSymlinkFromEarlierArchive(t *testing.T) {
+	chroot, outside := testChroot(t)
+	dir := t.TempDir()
+
+	first := filepath.Join(dir, "first.zip")
+	testWriteZip(t, first, func(zw *zip.Writer) {
+		testZipSymlink(t, zw, "link", "../outside")
+	})
+
+	second := filepath.Join(dir, "second.zip")
+	testWriteZip(t, second, func(zw *zip.Writer) {
+		testZipFile(t, zw, "link/pwned.txt", "owned")
+	})
+
+	// the default policy preserves the link as stored
+	require.NoError(t, testExtractArchive(t, first, chroot))
+	target, err := os.Readlink(filepath.Join(chroot, "link"))
+	require.NoError(t, err)
+	assert.Equal(t, "../outside", filepath.ToSlash(target))
+
+	require.ErrorIs(t, testExtractArchive(t, second, chroot), ErrSymlinkEscapesChroot)
+	assert.NoFileExists(t, filepath.Join(outside, "pwned.txt"))
+}
+
+// An entry extracted where a symbolic link already exists replaces the link,
+// rather than being written to, or changing the metadata of, the link's target.
+func TestExtractorReplacesSymlinkInTheWay(t *testing.T) {
+	chroot, outside := testChroot(t)
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "target.txt"), []byte("original"), 0644))
+	require.NoError(t, os.Mkdir(filepath.Join(outside, "dir"), 0755))
+	require.NoError(t, os.Symlink(filepath.Join("..", "outside", "target.txt"), filepath.Join(chroot, "file")))
+	require.NoError(t, os.Symlink(filepath.Join("..", "outside", "dir"), filepath.Join(chroot, "dir")))
+
+	archive := filepath.Join(t.TempDir(), "archive.zip")
+	testWriteZip(t, archive, func(zw *zip.Writer) {
+		testZipFile(t, zw, "file", "replaced")
+		testZipDir(t, zw, "dir")
+		testZipFile(t, zw, "dir/inner.txt", "inner")
+	})
+
+	require.NoError(t, testExtractArchive(t, archive, chroot))
+
+	fi, err := os.Lstat(filepath.Join(chroot, "file"))
+	require.NoError(t, err)
+	assert.True(t, fi.Mode().IsRegular(), "symlink should have been replaced by the file")
+	contents, err := os.ReadFile(filepath.Join(chroot, "file"))
+	require.NoError(t, err)
+	assert.Equal(t, "replaced", string(contents))
+
+	fi, err = os.Lstat(filepath.Join(chroot, "dir"))
+	require.NoError(t, err)
+	assert.True(t, fi.IsDir() && fi.Mode()&os.ModeSymlink == 0, "symlink should have been replaced by the directory")
+	assert.FileExists(t, filepath.Join(chroot, "dir", "inner.txt"))
+
+	contents, err = os.ReadFile(filepath.Join(outside, "target.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "original", string(contents))
+	assert.NoFileExists(t, filepath.Join(outside, "dir", "inner.txt"))
+}
+
+func TestExtractorSymlinkPolicy(t *testing.T) {
+	type link struct{ name, target string }
+
+	tests := []struct {
+		name    string
+		onDisk  []link // links created under the chroot before extraction
+		files   []string
+		links   []link // archive symlink entries, in archive order
+		escapes bool
+	}{
+		{
+			name:  "relative within chroot",
+			files: []string{"file"},
+			links: []link{{"sub/link", "../file"}},
+		},
+		{
+			name:  "dangling within chroot",
+			links: []link{{"link", "missing"}},
+		},
+		{
+			name:    "absolute",
+			links:   []link{{"link", "ABSOLUTE"}},
+			escapes: true,
+		},
+		{
+			name:    "relative outside",
+			links:   []link{{"link", "../../x"}},
+			escapes: true,
+		},
+		{
+			name:    "relative outside from subdirectory",
+			links:   []link{{"a/b/link", "../../../x"}},
+			escapes: true,
+		},
+		{
+			// hop is created before it is resolved, so this exercises the
+			// resolution through root rather than a check of the target string
+			name:    "chain leaving chroot",
+			links:   []link{{"chain", "hop"}, {"hop", "../outside"}},
+			escapes: true,
+		},
+		{
+			name:    "through link already on disk",
+			onDisk:  []link{{"pre", "../outside"}},
+			links:   []link{{"link", "pre"}},
+			escapes: true,
+		},
+		{
+			// lexically a/../../c leaves the chroot, but a is a link to x/y so
+			// the link physically resolves to c inside it
+			name:   "relative through directory link inside chroot",
+			onDisk: []link{{"a", "x/y"}},
+			files:  []string{"c", "x/y/.keep"},
+			links:  []link{{"a/link", "../../c"}},
+		},
+	}
+
+	for _, tc := range tests {
+		for _, contain := range []bool{false, true} {
+			name := tc.name + "/preserve"
+			if contain {
+				name = tc.name + "/contain"
+			}
+
+			t.Run(name, func(t *testing.T) {
+				chroot, _ := testChroot(t)
+				for _, f := range tc.files {
+					require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(chroot, filepath.FromSlash(f))), 0755))
+				}
+				for _, l := range tc.onDisk {
+					require.NoError(t, os.Symlink(filepath.FromSlash(l.target), filepath.Join(chroot, l.name)))
+				}
+
+				archive := filepath.Join(t.TempDir(), "archive.zip")
+				testWriteZip(t, archive, func(zw *zip.Writer) {
+					for _, f := range tc.files {
+						testZipFile(t, zw, f, "contents")
+					}
+					for _, l := range tc.links {
+						target := l.target
+						if target == "ABSOLUTE" {
+							// absolute, even though it points inside the chroot
+							target = filepath.Join(chroot, "file")
+						}
+						testZipSymlink(t, zw, l.name, target)
+					}
+				})
+
+				var opts []ExtractorOption
+				if contain {
+					opts = append(opts, WithExtractorSymlinkPolicy(SymlinkPolicyContain))
+				}
+
+				err := testExtractArchive(t, archive, chroot, opts...)
+				if !contain || !tc.escapes {
+					require.NoError(t, err)
+					for _, l := range tc.links {
+						_, err := os.Lstat(filepath.Join(chroot, l.name))
+						assert.NoError(t, err, "link %s should have been created", l.name)
+					}
+					return
+				}
+
+				require.ErrorIs(t, err, ErrSymlinkEscapesChroot)
+
+				// the rejected link is not left behind
+				last := tc.links[len(tc.links)-1]
+				_, err = os.Lstat(filepath.Join(chroot, last.name))
+				assert.ErrorIs(t, err, os.ErrNotExist, "rejected link %s should not exist", last.name)
+			})
+		}
+	}
+}
+
+// Setuid, setgid and sticky bits stored in the archive are not applied, as
+// they never were: only permission bits are set on extracted entries.
+func TestExtractorDropsSetuidSetgidStickyBits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission bits")
+	}
+
+	chroot, _ := testChroot(t)
+	archive := filepath.Join(t.TempDir(), "archive.zip")
+	testWriteZip(t, archive, func(zw *zip.Writer) {
+		testZipEntry(t, zw, "setuid", os.ModeSetuid|0755, "")
+		testZipEntry(t, zw, "setgid", os.ModeSetgid|0755, "")
+		testZipEntry(t, zw, "sticky/", os.ModeDir|os.ModeSticky|0755, "")
+	})
+
+	require.NoError(t, testExtractArchive(t, archive, chroot))
+
+	for _, name := range []string{"setuid", "setgid", "sticky"} {
+		fi, err := os.Lstat(filepath.Join(chroot, name))
+		require.NoError(t, err)
+		assert.Zero(t, fi.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky), "%s should have no special bits", name)
+		assert.Equal(t, os.FileMode(0755), fi.Mode().Perm(), "%s perm", name)
+	}
 }
