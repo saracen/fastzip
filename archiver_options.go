@@ -18,6 +18,7 @@ type archiverOptions struct {
 	stageDir        string
 	offset          int64
 	stableFileOrder bool
+	streamThreshold int64
 }
 
 // WithArchiverMethod sets the zip method to be used for compressible files.
@@ -101,6 +102,33 @@ func WithArchiverOffset(n int64) ArchiverOption {
 func WithStableFileOrder() ArchiverOption {
 	return func(o *archiverOptions) error {
 		o.stableFileOrder = true
+		return nil
+	}
+}
+
+// WithArchiverStreamThreshold makes files of at least n bytes (by their
+// enumerated size) compress straight into the archive instead of first being
+// compressed to a staging file. A staged file writes nothing to the archive
+// until it is fully compressed, so when the archive is streamed to a network
+// connection, a large file can leave the connection idle for long enough that
+// a proxy or server closes it. Streamed files keep data flowing as they
+// compress.
+//
+// A streamed file holds the archive's write lock while it compresses, so
+// streamed files are compressed one at a time; other files keep compressing
+// concurrently into staging files and are written once it finishes. Streamed
+// files are also always written with the archiver method, even if compression
+// makes them larger. Output therefore differs from that of a staged file, so
+// runs compared with WithStableFileOrder must use the same threshold.
+//
+// The default of 0 disables streaming. It has no effect at a concurrency of 1,
+// where every file is already streamed.
+func WithArchiverStreamThreshold(n int64) ArchiverOption {
+	return func(o *archiverOptions) error {
+		if n < 0 {
+			n = 0
+		}
+		o.streamThreshold = n
 		return nil
 	}
 }
