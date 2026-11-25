@@ -322,14 +322,15 @@ func (a *Archiver) createFile(ctx context.Context, order *writeSerializer, idx i
 // compressFile pre-compresses the file first to a file from the filepool,
 // making use of zip.CreateRaw. This allows for concurrent files to be
 // compressed and then added to the zip file when ready.
-// If no filepool file is available (when using a concurrency of 1) or the
-// compressed file is larger than the uncompressed version, the file is moved
-// to the zip file using the conventional zip.CreateHeader.
+// If no filepool file is available (when using a concurrency of 1), the file
+// is at least the stream threshold, or the compressed file is larger than the
+// uncompressed version, the file is moved to the zip file using the
+// conventional zip.CreateHeader.
 func (a *Archiver) compressFile(ctx context.Context, order *writeSerializer, idx int, f *os.File, fi os.FileInfo, hdr *zip.FileHeader, tmp *filepool.File) error {
 	comp, ok := a.compressors[hdr.Method]
 	// if we don't have the registered compressor, it most likely means Store is
 	// being used, so we revert to non-concurrent behaviour
-	if !ok || tmp == nil {
+	if !ok || tmp == nil || a.streamFile(hdr) {
 		return a.compressFileSimple(ctx, order, idx, f, fi, hdr)
 	}
 
@@ -366,6 +367,13 @@ func (a *Archiver) compressFile(ctx context.Context, order *writeSerializer, idx
 	return a.writeFileEntry(ctx, order, idx, int64(hdr.CompressedSize64), br, func() (io.Writer, error) {
 		return a.createHeaderRaw(fi, hdr)
 	})
+}
+
+// streamFile reports whether a file is large enough to be compressed straight
+// into the archive rather than staged; see WithArchiverStreamThreshold.
+func (a *Archiver) streamFile(hdr *zip.FileHeader) bool {
+	t := a.options.streamThreshold
+	return t > 0 && hdr.UncompressedSize64 >= uint64(t)
 }
 
 // compressFileSimple uses the conventional zip.createHeader. This differs from

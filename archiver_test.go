@@ -124,6 +124,11 @@ func TestArchive(t *testing.T) {
 		"stable no buffer":    {WithArchiverConcurrency(4), WithArchiverBufferSize(0), WithStableFileOrder()},
 		"stable order store":  {WithArchiverConcurrency(4), WithArchiverMethod(zip.Store), WithStableFileOrder()},
 		"stable concurrency1": {WithArchiverConcurrency(1), WithStableFileOrder()},
+		"stream threshold":    {WithArchiverConcurrency(4), WithArchiverStreamThreshold(1024)},
+		"stable stream":       {WithArchiverConcurrency(4), WithArchiverStreamThreshold(1024), WithStableFileOrder()},
+		"stable stream no buf": {
+			WithArchiverConcurrency(4), WithArchiverStreamThreshold(1024), WithArchiverBufferSize(0), WithStableFileOrder(),
+		},
 	}
 
 	for tn, opts := range tests {
@@ -419,6 +424,103 @@ func TestArchiveStableFileOrderFileErrorDoesNotDeadlock(t *testing.T) {
 			bytes, entries := a.Written()
 			require.Zero(t, bytes)
 			require.Equal(t, int64(1), entries)
+		})
+	}
+}
+
+// gapWriter records the longest time between writes, counted from start.
+type gapWriter struct {
+	mu     sync.Mutex
+	last   time.Time
+	maxGap time.Duration
+}
+
+func (w *gapWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	now := time.Now()
+	if gap := now.Sub(w.last); gap > w.maxGap {
+		w.maxGap = gap
+	}
+	w.last = now
+	return len(p), nil
+}
+
+// slowWriter passes data through in chunks, sleeping before each one, to stand
+// in for a compressor that is slow relative to the network.
+type slowWriter struct {
+	w     io.Writer
+	delay time.Duration
+}
+
+func (w slowWriter) Write(p []byte) (int, error) {
+	const chunk = 32 * 1024
+	var n int
+	for len(p) > 0 {
+		c := min(len(p), chunk)
+		time.Sleep(w.delay)
+		m, err := w.w.Write(p[:c])
+		n += m
+		if err != nil {
+			return n, err
+		}
+		p = p[c:]
+	}
+	return n, nil
+}
+
+func (w slowWriter) Close() error { return nil }
+
+func TestArchiveStreamThresholdKeepsOutputFlowing(t *testing.T) {
+	const (
+		slowMethod = 0xfff0
+		delay      = 10 * time.Millisecond
+		size       = 2 * 1024 * 1024 // 64 chunks, so ~640ms to "compress"
+	)
+
+	testFiles := map[string]testFile{
+		"large": {mode: 0666, contents: strings.Repeat("a", size)},
+		"small": {mode: 0666, contents: "small"},
+	}
+	files, dir := testCreateFiles(t, testFiles)
+
+	tests := map[string]struct {
+		opts     []ArchiverOption
+		streamed bool
+	}{
+		"staged":        {opts: nil, streamed: false},
+		"streamed":      {opts: []ArchiverOption{WithArchiverStreamThreshold(size)}, streamed: true},
+		"stable staged": {opts: []ArchiverOption{WithStableFileOrder()}, streamed: false},
+		"stable streamed": {
+			opts:     []ArchiverOption{WithStableFileOrder(), WithArchiverStreamThreshold(size)},
+			streamed: true,
+		},
+	}
+
+	for tn, tc := range tests {
+		t.Run(tn, func(t *testing.T) {
+			w := &gapWriter{last: time.Now()}
+			opts := append([]ArchiverOption{
+				WithArchiverConcurrency(4),
+				WithArchiverMethod(slowMethod),
+				WithStageDirectory(t.TempDir()),
+			}, tc.opts...)
+
+			a, err := NewArchiver(w, dir, opts...)
+			require.NoError(t, err)
+			a.RegisterCompressor(slowMethod, func(w io.Writer) (io.WriteCloser, error) {
+				return slowWriter{w: w, delay: delay}, nil
+			})
+
+			require.NoError(t, a.Archive(context.Background(), files))
+			require.NoError(t, a.Close())
+
+			if tc.streamed {
+				assert.Less(t, w.maxGap, 250*time.Millisecond)
+			} else {
+				// Confirms the test detects the gap streaming removes.
+				assert.Greater(t, w.maxGap, 500*time.Millisecond)
+			}
 		})
 	}
 }
