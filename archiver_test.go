@@ -499,6 +499,10 @@ func TestArchiveStreamThresholdKeepsOutputFlowing(t *testing.T) {
 
 	for tn, tc := range tests {
 		t.Run(tn, func(t *testing.T) {
+			// The time spent is the slow compressor sleeping, not CPU work, so
+			// running the cases in parallel doesn't skew the gaps they measure.
+			t.Parallel()
+
 			w := &gapWriter{last: time.Now()}
 			opts := append([]ArchiverOption{
 				WithArchiverConcurrency(4),
